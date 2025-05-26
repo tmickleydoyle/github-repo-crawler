@@ -151,7 +151,7 @@ jobs:
           echo "to merge results from all 10 alphabet partitions into a single global dataset." >> COORDINATION_SUMMARY.md
 
       - name: Upload Coordination Summary
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: hierarchical-crawler-coordination-summary
           path: COORDINATION_SUMMARY.md

@@ -4,16 +4,7 @@ A highly scalable GitHub repository crawler that uses hierarchical parallelizati
 
 ## 🚀 Quick Start
 
-### Basic Usage (Original Matrix Approach)
-```bash
-# Trigger the original matrix crawler (40 parallel runners)
-gh workflow run matrix-crawler.yml \
-  --field total_repos="100000" \
-  --field matrix_size="40" \
-  --field mode="stars-only"
-```
-
-### Advanced Usage (Hierarchical Approach)
+### Usage (Hierarchical Approach)
 ```bash
 # Trigger hierarchical crawler (10 alphabets × 20 runners = 200 parallel runners)
 # Default mode is stars-only - no code downloading
@@ -100,7 +91,6 @@ Level 3: Async Workers
 
 ```
 ├── .github/workflows/          # GitHub Actions workflows
-│   ├── matrix-crawler.yml          # Original matrix approach
 │   ├── matrix-crawler-a-b.yml      # Alphabet partition: A-B
 │   ├── matrix-crawler-c-d.yml      # Alphabet partition: C-D  
 │   ├── ...                         # Other alphabet partitions

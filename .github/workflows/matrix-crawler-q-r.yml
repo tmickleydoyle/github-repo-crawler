@@ -141,14 +141,14 @@ jobs:
           echo "📊 Alphabet Q-R Partition ${{ matrix.partition_index }} collected ${repo_count} repositories"
 
       - name: Upload Partition Results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: partition-qr-${{ matrix.partition_index }}-results
           path: partition_qr_${{ matrix.partition_index }}_stars.csv
 
       - name: Upload Archive Results (Full Archive Mode Only)
         if: github.event.inputs.mode == 'full-archive'
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: partition-qr-${{ matrix.partition_index }}-archives
           path: data/repos-qr-${{ matrix.partition_index }}/*.tar.gz
@@ -257,7 +257,7 @@ jobs:
           done
 
       - name: Upload Final Results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: github-crawler-matrix-qr-final-results
           path: |

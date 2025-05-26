@@ -283,7 +283,7 @@ jobs:
           branch: ${{ github.ref }}
 
       - name: Upload Export Artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: matrix-database-exports-${{ steps.timestamp.outputs.timestamp }}
           path: database_exports/

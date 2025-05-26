@@ -291,7 +291,7 @@ jobs:
           echo "✅ Database export created with global rankings"
 
       - name: Upload Global Results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: github-crawler-global-hierarchical-results
           path: |
