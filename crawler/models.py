@@ -9,13 +9,12 @@ class Repo(BaseModel):
     owner: str
     url: str
     created_at: datetime
-    alphabet_partition: Optional[str] = None  # Track which alphabet partition crawled this repo
+    alphabet_partition: Optional[str] = None
     
     @field_validator('created_at', mode='before')
     @classmethod
     def parse_datetime(cls, v):
         if isinstance(v, str):
-            # Parse the ISO string and convert to naive datetime (UTC)
             dt = date_parser.parse(v)
             return dt.replace(tzinfo=None) if dt.tzinfo else dt
         return v

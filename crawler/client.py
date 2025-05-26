@@ -16,7 +16,7 @@ class GitHubClient:
         self.headers = {
             "Authorization": f"Bearer {token}",
             "Accept": "application/vnd.github.v4+json",
-            "User-Agent": "GitHub-Crawler/1.0"  # Add user agent
+            "User-Agent": "GitHub-Crawler/1.0"
         }
         print(f"Initialized GitHub client with token: {token[:10]}...{token[-4:]}")
 
@@ -34,13 +34,11 @@ class GitHubClient:
                     print("Rate limit exceeded, waiting...")
                     await asyncio.sleep(60)
             resp.raise_for_status()
-            # rate-limit headers only on REST, but GraphQL has its own limits
             return await resp.json()
 
     async def _rate_limit_pause(self, resp: aiohttp.ClientResponse):
         remaining = int(resp.headers.get("X-RateLimit-Remaining", 1))
         reset_ts = int(resp.headers.get("X-RateLimit-Reset", time.time()))
-        # Only pause if we're very close to the limit
         if remaining < 2:
             sleep_time = max(reset_ts - time.time(), 0) + 1
             print(f"Rate limit pause: {sleep_time}s")
@@ -52,22 +50,18 @@ class GitHubClient:
     async def _get(self, session: aiohttp.ClientSession, url: str) -> dict:
         async with session.get(url, headers=self.headers) as resp:
             if resp.status == 403:
-                # Check if it's a rate limit issue
                 if 'rate limit' in resp.reason.lower() or 'api rate limit' in (await resp.text()).lower():
                     print(f"Rate limit hit, waiting...")
-                    await asyncio.sleep(60)  # Wait a minute for rate limit reset
+                    await asyncio.sleep(60)
                     raise aiohttp.ClientResponseError(resp.request_info, resp.history, status=resp.status)
             resp.raise_for_status()
             await self._rate_limit_pause(resp)
             return await resp.json()
 
     async def fetch_repos(self, session: aiohttp.ClientSession, after: Optional[str], alphabet_filter: Optional[str] = None):
-        # Build the search query with alphabetical filtering if provided
         base_query = "stars:>0"
         if alphabet_filter:
-            # Handle different formats: 'a-c', 'abc', or single letters
             if '-' in alphabet_filter and len(alphabet_filter) == 3:
-                # Range format like 'a-c'
                 start, end = alphabet_filter.split('-')
                 owner_queries = []
                 for char in "abcdefghijklmnopqrstuvwxyz":
@@ -78,7 +72,6 @@ class GitHubClient:
                 else:
                     query = base_query
             else:
-                # Multiple characters or single character
                 owner_queries = [f"user:{char}*" for char in alphabet_filter.lower()]
                 query = f"{base_query} " + " OR ".join(owner_queries)
         else:
@@ -140,13 +133,11 @@ class GitHubClient:
                         
                     after = search["pageInfo"]["endCursor"]
                     
-                    # Add a small delay between batches to be respectful to the API
                     if len(repos) < settings.max_repos:
                         await asyncio.sleep(1)
                         
                 except Exception as e:
                     print(f"Error in batch {batch_count}: {e}")
-                    # If we hit an error but have some repos, continue with what we have
                     if repos:
                         print(f"Continuing with {len(repos)} repositories collected so far")
                         break
@@ -167,15 +158,12 @@ class GitHubClient:
         data = await self._get(session, url)
         raw = data.get("content", "")
         
-        # Handle both text and binary content
         try:
             if data.get("encoding") == "base64":
                 decoded = base64.b64decode(raw)
-                # Try to decode as UTF-8 first
                 try:
                     return decoded.decode("utf-8")
                 except UnicodeDecodeError:
-                    # If it fails, it's likely binary - return base64 encoded
                     return f"[BINARY_BASE64]{raw}"
             else:
                 return raw
@@ -188,19 +176,17 @@ class GitHubClient:
         try:
             tree = await self.fetch_repo_file_tree(session, owner, name)
             
-            # Filter out only very large files (>10MB) and directories
             filtered_tree = []
             for node in tree:
-                if node["type"] == "blob":  # Only process files, not directories
+                if node["type"] == "blob":
                     file_size = node.get("size", 0)
-                    if file_size <= 10 * 1024 * 1024:  # Skip files larger than 10MB
+                    if file_size <= 10 * 1024 * 1024:
                         filtered_tree.append(node)
                     else:
                         print(f"Skipping large file {node['path']} ({file_size} bytes)")
             
             print(f"Fetching {len(filtered_tree)} files for {owner}/{name}...")
             
-            # Adjust concurrency based on repository size
             max_concurrent = min(15, max(5, len(filtered_tree) // 10))
             sem = asyncio.Semaphore(max_concurrent)
             
@@ -216,7 +202,6 @@ class GitHubClient:
                         })
                     except Exception as e:
                         print(f"Failed to fetch {node['path']}: {e}")
-                        # Still add the file entry but with error info
                         files.append({
                             "path": node["path"], 
                             "content": f"ERROR: {str(e)}",
@@ -226,14 +211,12 @@ class GitHubClient:
                         })
             
             if filtered_tree:
-                # Process files in batches to avoid overwhelming the API
                 batch_size = 50
                 for i in range(0, len(filtered_tree), batch_size):
                     batch = filtered_tree[i:i + batch_size]
                     print(f"Processing batch {i//batch_size + 1}/{(len(filtered_tree) + batch_size - 1)//batch_size} ({len(batch)} files)")
                     await asyncio.gather(*(fetch_blob(n) for n in batch), return_exceptions=True)
                     
-                    # Small delay between batches to be respectful to the API
                     if i + batch_size < len(filtered_tree):
                         await asyncio.sleep(1)
                 
@@ -250,19 +233,16 @@ class GitHubClient:
         repo_path = os.path.join(temp_dir, f"{owner}-{name}")
         
         try:
-            # Use git clone without authentication to avoid rate limits
-            # Use --depth 1 for faster clones and --single-branch for efficiency
             clone_cmd = [
                 "git", "clone", 
                 "--depth", "1", 
                 "--single-branch",
-                "--no-tags",  # Skip tags for faster clone
+                "--no-tags",
                 clone_url, 
                 repo_path
             ]
             
             print(f"Cloning {owner}/{name}...")
-            # Run git clone with timeout
             process = await asyncio.create_subprocess_exec(
                 *clone_cmd,
                 stdout=asyncio.subprocess.PIPE,
@@ -271,10 +251,9 @@ class GitHubClient:
             )
             
             try:
-                # Add timeout to prevent hanging on large repos
                 stdout, stderr = await asyncio.wait_for(
                     process.communicate(), 
-                    timeout=300  # 5 minutes timeout
+                    timeout=300
                 )
             except asyncio.TimeoutError:
                 process.kill()
@@ -287,7 +266,6 @@ class GitHubClient:
                 print(f"Git clone failed for {owner}/{name}: {error_msg}")
                 return []
             
-            # Extract all files from the cloned repository
             files = []
             repo_pathlib = Path(repo_path)
             
@@ -297,7 +275,6 @@ class GitHubClient:
                         relative_path = file_path.relative_to(repo_pathlib)
                         file_size = file_path.stat().st_size
                         
-                        # Try to read as text first
                         try:
                             content = file_path.read_text(encoding='utf-8', errors='ignore')
                             files.append({
@@ -306,7 +283,6 @@ class GitHubClient:
                                 "size": file_size
                             })
                         except Exception:
-                            # For binary files, store metadata only
                             files.append({
                                 "path": str(relative_path),
                                 "content": "[BINARY_FILE]",
@@ -324,20 +300,16 @@ class GitHubClient:
             print(f"Error cloning {owner}/{name}: {e}")
             return []
         finally:
-            # Cleanup cloned repository
             if os.path.exists(repo_path):
                 shutil.rmtree(repo_path, ignore_errors=True)
 
     def _should_skip_file(self, file_path: Path) -> bool:
         """Determine if a file should be skipped during extraction"""
-        # Skip .git directory and common non-source files
         parts = file_path.parts
         
-        # Skip .git directory
         if '.git' in parts:
             return True
             
-        # Skip common directories that don't contain source code
         skip_dirs = {
             'node_modules', '__pycache__', '.pytest_cache', 'venv', 'env', '.env',
             'build', 'dist', 'target', 'bin', 'obj', '.idea', '.vscode',
@@ -348,38 +320,26 @@ class GitHubClient:
         if any(part in skip_dirs for part in parts):
             return True
         
-        # Get file extension and name
         file_name = file_path.name.lower()
         file_suffix = file_path.suffix.lower()
         
-        # Skip common non-source files
         skip_patterns = {
-            # Compiled files
             '.pyc', '.pyo', '.class', '.o', '.obj', '.dll', '.so', '.dylib',
-            # Archives
             '.zip', '.tar', '.gz', '.rar', '.7z', '.jar', '.war', '.ear',
-            # Images
             '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.svg', '.ico', '.webp',
-            # Documents
             '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
-            # Media
             '.mp3', '.mp4', '.avi', '.mov', '.wav', '.flv', '.wmv',
-            # Databases
             '.db', '.sqlite', '.sqlite3', '.mdb',
-            # Logs
             '.log', '.out',
-            # IDE files
             '.iml', '.ipr', '.iws',
         }
         
         if file_suffix in skip_patterns:
             return True
             
-        # Skip files that start with dots (hidden files) except common source files
         if file_name.startswith('.') and file_suffix not in {'.env', '.gitignore', '.gitattributes', '.editorconfig'}:
             return True
             
-        # Skip very large files (> 5MB for git clone since we get everything)
         try:
             if file_path.stat().st_size > 5 * 1024 * 1024:
                 return True
@@ -406,11 +366,9 @@ class GitHubClient:
             batch_size = len(search["nodes"])
             
             if skipped + batch_size <= target_skip:
-                # Skip this entire batch
                 skipped += batch_size
                 print(f"⏭️  Skipped batch: {batch_size} repos (total skipped: {skipped})")
             else:
-                # This batch contains our starting point
                 remaining_skip = target_skip - skipped
                 print(f"🎯 Found starting partition at offset {remaining_skip} in current batch")
                 return after
@@ -421,7 +379,6 @@ class GitHubClient:
                 
             after = search["pageInfo"]["endCursor"]
             
-            # Small delay to be respectful during seeking
             await asyncio.sleep(0.2)
         
         print(f"✅ Successfully skipped to partition starting point")

@@ -11,7 +11,6 @@ class RepoRepository:
         self.pool = None
 
     async def init(self):
-        # Increase pool size for matrix scenarios with many concurrent connections
         self.pool = await asyncpg.create_pool(
             self.dsn, 
             min_size=5, 
@@ -41,7 +40,6 @@ class RepoRepository:
         """
         async with self.pool.acquire() as conn:
             async with conn.transaction():
-                # Batch insert using executemany for better performance
                 await conn.executemany(sql, [(r.id, r.name, r.owner, r.url, r.created_at, r.alphabet_partition) for r in repos])
 
     @retry(
@@ -62,7 +60,6 @@ class RepoRepository:
         """
         async with self.pool.acquire() as conn:
             async with conn.transaction():
-                # Batch insert using executemany for better performance
                 await conn.executemany(sql, [(s.repo_id, s.fetched_date, s.stars) for s in stats])
 
     async def insert_archive(self, archive: RepoArchive):
@@ -85,5 +82,4 @@ class RepoRepository:
         """
         async with self.pool.acquire() as conn:
             async with conn.transaction():
-                # Batch insert using executemany for better performance
                 await conn.executemany(sql, [(idx.repo_id, idx.fetched_date, idx.path, idx.content_sha) for idx in indexes])
