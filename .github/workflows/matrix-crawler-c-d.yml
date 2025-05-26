@@ -1,0 +1,266 @@
+name: Matrix Crawler - {ALPHABET_NAME} Organizations
+on:
+  workflow_dispatch:
+    inputs:
+      total_repos:
+        description: "Total repositories to collect per alphabet partition"
+        required: true
+        default: "10000"
+        type: string
+      matrix_size:
+        description: "Number of parallel runners"
+        required: true
+        default: "20"
+        type: string
+      mode:
+        description: "Crawling mode"
+        required: true
+        default: "stars-only"
+        type: choice
+        options:
+          - stars-only
+          - full-archive
+
+env:
+  TOTAL_REPOS: ${{ github.event.inputs.total_repos || '10000' }}
+  MATRIX_SIZE: ${{ github.event.inputs.matrix_size || '20' }}
+  ALPHABET_FILTER: "{ALPHABET_FILTER}"
+
+jobs:
+  calculate-partitions:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      partition_size: ${{ steps.set-matrix.outputs.partition_size }}
+    steps:
+      - name: Calculate Matrix Configuration
+        id: set-matrix
+        run: |
+          total_repos=${{ env.TOTAL_REPOS }}
+          matrix_size=${{ env.MATRIX_SIZE }}
+          partition_size=$((total_repos / matrix_size))
+
+          # Generate matrix indices [0, 1, 2, ..., matrix_size-1]
+          matrix_json="["
+          for i in $(seq 0 $((matrix_size - 1))); do
+            if [ $i -gt 0 ]; then
+              matrix_json="${matrix_json},"
+            fi
+            matrix_json="${matrix_json}${i}"
+          done
+          matrix_json="${matrix_json}]"
+
+          echo "matrix=${matrix_json}" >> $GITHUB_OUTPUT
+          echo "partition_size=${partition_size}" >> $GITHUB_OUTPUT
+
+          echo "🔤 Alphabet Partition: {ALPHABET_NAME} Organizations"
+          echo "📊 Matrix Configuration:"
+          echo "  Total repositories: ${total_repos}"
+          echo "  Parallel runners: ${matrix_size}"
+          echo "  Repositories per runner: ${partition_size}"
+          echo "  Matrix indices: ${matrix_json}"
+
+  crawl-stars:
+    needs: calculate-partitions
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        partition_index: ${{ fromJson(needs.calculate-partitions.outputs.matrix) }}
+
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: github_crawler
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres" \
+          --health-interval 10s \
+          --health-timeout 5s \
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install Dependencies
+        run: pip install -r requirements.txt
+
+      - name: Setup PostgreSQL
+        run: |
+          psql postgresql://postgres:postgres@localhost:5432/github_crawler \
+            -f migrations/001_initial_schema.sql
+          psql postgresql://postgres:postgres@localhost:5432/github_crawler \
+            -f migrations/002_add_alphabet_partition.sql
+
+      - name: Display Partition Info
+        run: |
+          partition_start=$((${{ matrix.partition_index }} * ${{ needs.calculate-partitions.outputs.partition_size }}))
+          partition_end=$((partition_start + ${{ needs.calculate-partitions.outputs.partition_size }}))
+          echo "🔤 Alphabet Filter: ${{ env.ALPHABET_FILTER }} ({ALPHABET_DESCRIPTION})"
+          echo "🎯 Runner ${{ matrix.partition_index }} processing repositories ${partition_start}-${partition_end}"
+          echo "📊 Partition size: ${{ needs.calculate-partitions.outputs.partition_size }}"
+
+      - name: Crawl Stars
+        run: |
+          if [ "${{ github.event.inputs.mode }}" = "stars-only" ]; then
+            python -m crawler.main \
+              --matrix-total ${{ env.MATRIX_SIZE }} \
+              --matrix-index ${{ matrix.partition_index }} \
+              --partition-size ${{ needs.calculate-partitions.outputs.partition_size }} \
+              --alphabet-filter ${{ env.ALPHABET_FILTER }} \
+              --stars-only
+          else
+            python -m crawler.main \
+              --matrix-total ${{ env.MATRIX_SIZE }} \
+              --matrix-index ${{ matrix.partition_index }} \
+              --partition-size ${{ needs.calculate-partitions.outputs.partition_size }} \
+              --alphabet-filter ${{ env.ALPHABET_FILTER }} \
+              --outdir data/repos-{ALPHABET_FILTER}-${{ matrix.partition_index }}
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/github_crawler
+
+      - name: Export Partition Data
+        run: |
+          # Export this partition's data with partition identifier
+          psql postgresql://postgres:postgres@localhost:5432/github_crawler \
+            -c "COPY (SELECT r.owner, r.name, rs.stars, rs.fetched_date, '${{ matrix.partition_index }}' as partition, r.alphabet_partition FROM repo r JOIN repo_stats rs ON r.id = rs.repo_id WHERE r.alphabet_partition = '{ALPHABET_FILTER}' ORDER BY rs.stars DESC) TO STDOUT WITH CSV HEADER" > partition_{ALPHABET_FILTER}_${{ matrix.partition_index }}_stars.csv
+
+          # Get partition statistics
+          repo_count=$(psql postgresql://postgres:postgres@localhost:5432/github_crawler -t -c "SELECT COUNT(*) FROM repo WHERE alphabet_partition = '{ALPHABET_FILTER}';")
+          echo "📊 Alphabet {ALPHABET_NAME} Partition ${{ matrix.partition_index }} collected ${repo_count} repositories"
+
+      - name: Upload Partition Results
+        uses: actions/upload-artifact@v3
+        with:
+          name: partition-{ALPHABET_FILTER}-${{ matrix.partition_index }}-results
+          path: partition_{ALPHABET_FILTER}_${{ matrix.partition_index }}_stars.csv
+
+      - name: Upload Archive Results (Full Archive Mode Only)
+        if: github.event.inputs.mode == 'full-archive'
+        uses: actions/upload-artifact@v3
+        with:
+          name: partition-{ALPHABET_FILTER}-${{ matrix.partition_index }}-archives
+          path: data/repos-{ALPHABET_FILTER}-${{ matrix.partition_index }}/*.tar.gz
+
+  consolidate-results:
+    needs: [calculate-partitions, crawl-stars]
+    runs-on: ubuntu-latest
+    if: always()
+
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: github_crawler
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres" \
+          --health-interval 10s \
+          --health-timeout 5s \
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install Dependencies
+        run: pip install -r requirements.txt
+
+      - name: Setup PostgreSQL
+        run: |
+          psql postgresql://postgres:postgres@localhost:5432/github_crawler \
+            -f migrations/001_initial_schema.sql
+          psql postgresql://postgres:postgres@localhost:5432/github_crawler \
+            -f migrations/002_add_alphabet_partition.sql
+
+      - name: Download All Partition Results
+        uses: actions/download-artifact@v3
+
+      - name: Consolidate CSV Results
+        run: |
+          # Combine all partition CSV files for {ALPHABET_NAME} organizations
+          echo "owner,name,stars,fetched_date,partition,alphabet_partition" > consolidated_{ALPHABET_FILTER}_stars.csv
+
+          # Add header and combine all partition files
+          for i in $(seq 0 $((${{ env.MATRIX_SIZE }} - 1))); do
+            if [ -f "partition-{ALPHABET_FILTER}-${i}-results/partition_{ALPHABET_FILTER}_${i}_stars.csv" ]; then
+              tail -n +2 "partition-{ALPHABET_FILTER}-${i}-results/partition_{ALPHABET_FILTER}_${i}_stars.csv" >> consolidated_{ALPHABET_FILTER}_stars.csv
+            fi
+          done
+
+          # Sort by stars descending
+          (head -n 1 consolidated_{ALPHABET_FILTER}_stars.csv && tail -n +2 consolidated_{ALPHABET_FILTER}_stars.csv | sort -t',' -k3 -nr) > final_{ALPHABET_FILTER}_stars_data.csv
+
+      - name: Generate Consolidated JSON
+        run: |
+          python3 -c "
+          import csv
+          import json
+
+          data = []
+          with open('final_{ALPHABET_FILTER}_stars_data.csv', 'r') as f:
+              reader = csv.DictReader(f)
+              for row in reader:
+                  data.append({
+                      'owner': row['owner'],
+                      'name': row['name'],
+                      'stars': int(row['stars']),
+                      'fetched_date': row['fetched_date'],
+                      'partition': int(row['partition']),
+                      'alphabet_partition': row['alphabet_partition']
+                  })
+
+          with open('final_{ALPHABET_FILTER}_stars_data.json', 'w') as f:
+              json.dump(data, f, indent=2)
+
+          print(f'✅ Consolidated {{len(data)}} {ALPHABET_NAME} organization repositories from all partitions')
+          "
+
+      - name: Generate Summary Report
+        run: |
+          total_repos=$(wc -l < final_{ALPHABET_FILTER}_stars_data.csv)
+          total_repos=$((total_repos - 1))  # Subtract header
+
+          echo "# GitHub Crawler Matrix Results - {ALPHABET_NAME} Organizations" > MATRIX_{ALPHABET_UPPER}_RESULTS.md
+          echo "" >> MATRIX_{ALPHABET_UPPER}_RESULTS.md
+          echo "## Summary" >> MATRIX_{ALPHABET_UPPER}_RESULTS.md
+          echo "- **Alphabet Partition:** {ALPHABET_NAME} ({ALPHABET_DESCRIPTION})" >> MATRIX_{ALPHABET_UPPER}_RESULTS.md
+          echo "- **Total Repositories Collected:** ${total_repos}" >> MATRIX_{ALPHABET_UPPER}_RESULTS.md
+          echo "- **Matrix Runners Used:** ${{ env.MATRIX_SIZE }}" >> MATRIX_{ALPHABET_UPPER}_RESULTS.md
+          echo "- **Target Repositories:** ${{ env.TOTAL_REPOS }}" >> MATRIX_{ALPHABET_UPPER}_RESULTS.md
+          echo "- **Collection Mode:** ${{ github.event.inputs.mode }}" >> MATRIX_{ALPHABET_UPPER}_RESULTS.md
+          echo "- **Repositories per Runner:** ${{ needs.calculate-partitions.outputs.partition_size }}" >> MATRIX_{ALPHABET_UPPER}_RESULTS.md
+          echo "" >> MATRIX_{ALPHABET_UPPER}_RESULTS.md
+          echo "## Top 10 Repositories by Stars ({ALPHABET_NAME} Organizations)" >> MATRIX_{ALPHABET_UPPER}_RESULTS.md
+          echo "| Owner | Repository | Stars |" >> MATRIX_{ALPHABET_UPPER}_RESULTS.md
+          echo "|-------|------------|-------|" >> MATRIX_{ALPHABET_UPPER}_RESULTS.md
+          head -n 11 final_{ALPHABET_FILTER}_stars_data.csv | tail -n +2 | while IFS=',' read -r owner name stars date partition alphabet; do
+            echo "| ${owner} | ${name} | ${stars} |" >> MATRIX_{ALPHABET_UPPER}_RESULTS.md
+          done
+
+      - name: Upload Final Results
+        uses: actions/upload-artifact@v3
+        with:
+          name: github-crawler-matrix-{ALPHABET_FILTER}-final-results
+          path: |
+            final_{ALPHABET_FILTER}_stars_data.csv
+            final_{ALPHABET_FILTER}_stars_data.json
+            MATRIX_{ALPHABET_UPPER}_RESULTS.md

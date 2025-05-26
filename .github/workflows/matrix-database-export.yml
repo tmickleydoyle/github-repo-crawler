@@ -1,0 +1,300 @@
+name: Matrix Crawler Database Export
+on:
+  workflow_dispatch:
+    inputs:
+      workflow_run_id:
+        description: "Workflow run ID to export from (optional - uses latest if empty)"
+        required: false
+        type: string
+      alphabet_partition:
+        description: "Specific alphabet partition to export (e.g., 'ab', 'cd') - leave empty for all"
+        required: false
+        type: string
+
+jobs:
+  export-matrix-databases:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install Dependencies
+        run: |
+          pip install --upgrade pip
+          pip install psycopg2-binary requests
+
+      - name: Generate Timestamp
+        id: timestamp
+        run: |
+          timestamp=$(date +"%Y%m%d_%H%M%S")
+          echo "timestamp=$timestamp" >> $GITHUB_OUTPUT
+          echo "Generated timestamp: $timestamp"
+
+      - name: Download Matrix Artifacts and Export
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          timestamp="${{ steps.timestamp.outputs.timestamp }}"
+          alphabet_filter="${{ github.event.inputs.alphabet_partition }}"
+
+          echo "🔄 Downloading matrix crawler artifacts and exporting to CSV..."
+
+          # Create export script
+          cat > export_matrix_data.py << 'EOF'
+          import os
+          import requests
+          import json
+          import csv
+          import zipfile
+          import tempfile
+          from datetime import datetime
+
+          def get_latest_workflow_runs():
+              """Get latest workflow runs for matrix crawlers"""
+              headers = {'Authorization': f'token {os.environ["GITHUB_TOKEN"]}'}
+              
+              # Get repository info
+              repo = os.environ['GITHUB_REPOSITORY']
+              api_base = f'https://api.github.com/repos/{repo}'
+              
+              # Get recent workflow runs
+              response = requests.get(f'{api_base}/actions/runs', headers=headers, params={
+                  'per_page': 100,
+                  'status': 'completed'
+              })
+              
+              if response.status_code != 200:
+                  print(f"Failed to get workflow runs: {response.status_code}")
+                  return []
+              
+              runs = response.json()['workflow_runs']
+              
+              # Filter for matrix crawler workflows
+              matrix_runs = []
+              for run in runs:
+                  if run['name'].startswith('Matrix Crawler -') and run['conclusion'] == 'success':
+                      matrix_runs.append(run)
+              
+              return matrix_runs[:10]  # Get last 10 successful runs
+
+          def download_artifacts(run_id, alphabet):
+              """Download artifacts from a specific workflow run"""
+              headers = {'Authorization': f'token {os.environ["GITHUB_TOKEN"]}'}
+              repo = os.environ['GITHUB_REPOSITORY']
+              api_base = f'https://api.github.com/repos/{repo}'
+              
+              # Get artifacts for this run
+              response = requests.get(f'{api_base}/actions/runs/{run_id}/artifacts', headers=headers)
+              
+              if response.status_code != 200:
+                  print(f"Failed to get artifacts for run {run_id}: {response.status_code}")
+                  return []
+              
+              artifacts = response.json()['artifacts']
+              downloaded_files = []
+              
+              for artifact in artifacts:
+                  if artifact['name'].endswith('-final-results'):
+                      print(f"Downloading artifact: {artifact['name']}")
+                      
+                      # Download artifact
+                      download_response = requests.get(artifact['archive_download_url'], headers=headers)
+                      
+                      if download_response.status_code == 200:
+                          # Save and extract zip
+                          with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as temp_zip:
+                              temp_zip.write(download_response.content)
+                              temp_zip_path = temp_zip.name
+                          
+                          # Extract zip
+                          extract_dir = f'./artifacts/{alphabet}_{run_id}'
+                          os.makedirs(extract_dir, exist_ok=True)
+                          
+                          with zipfile.ZipFile(temp_zip_path, 'r') as zip_ref:
+                              zip_ref.extractall(extract_dir)
+                          
+                          # Find CSV files
+                          for root, dirs, files in os.walk(extract_dir):
+                              for file in files:
+                                  if file.endswith('.csv'):
+                                      downloaded_files.append(os.path.join(root, file))
+                          
+                          os.unlink(temp_zip_path)
+              
+              return downloaded_files
+
+          def main():
+              # Create directories
+              os.makedirs('./database_exports', exist_ok=True)
+              os.makedirs('./artifacts', exist_ok=True)
+              
+              timestamp = os.environ.get('TIMESTAMP', datetime.now().strftime('%Y%m%d_%H%M%S'))
+              alphabet_filter = os.environ.get('ALPHABET_FILTER', '').strip()
+              
+              print(f"Starting export with timestamp: {timestamp}")
+              if alphabet_filter:
+                  print(f"Filtering for alphabet partition: {alphabet_filter}")
+              
+              # Get recent matrix crawler runs
+              recent_runs = get_latest_workflow_runs()
+              print(f"Found {len(recent_runs)} recent matrix crawler runs")
+              
+              all_data = []
+              alphabet_partitions = set()
+              
+              for run in recent_runs:
+                  workflow_name = run['name']
+                  run_id = run['id']
+                  
+                  # Extract alphabet from workflow name (e.g., "Matrix Crawler - A-B Organizations")
+                  if ' - ' in workflow_name and ' Organizations' in workflow_name:
+                      alphabet = workflow_name.split(' - ')[1].split(' Organizations')[0].lower().replace('-', '')
+                      
+                      # Skip if filtering and this doesn't match
+                      if alphabet_filter and alphabet != alphabet_filter:
+                          continue
+                      
+                      alphabet_partitions.add(alphabet)
+                      print(f"Processing alphabet partition: {alphabet} (run {run_id})")
+                      
+                      # Download artifacts for this run
+                      csv_files = download_artifacts(run_id, alphabet)
+                      
+                      # Process CSV files
+                      for csv_file in csv_files:
+                          print(f"Processing: {csv_file}")
+                          try:
+                              with open(csv_file, 'r') as f:
+                                  reader = csv.DictReader(f)
+                                  for row in reader:
+                                      row['source_workflow'] = workflow_name
+                                      row['source_run_id'] = str(run_id)
+                                      row['export_timestamp'] = timestamp
+                                      all_data.append(row)
+                          except Exception as e:
+                              print(f"Error processing {csv_file}: {e}")
+              
+              if not all_data:
+                  print("No data found to export")
+                  return
+              
+              # Sort by stars (descending)
+              all_data.sort(key=lambda x: int(x.get('stars', 0)), reverse=True)
+              
+              print(f"Total repositories collected: {len(all_data)}")
+              print(f"Alphabet partitions: {sorted(alphabet_partitions)}")
+              
+              # Export consolidated data
+              if alphabet_filter:
+                  filename = f"database_exports/matrix_crawler_{alphabet_filter}_{timestamp}.csv"
+              else:
+                  filename = f"database_exports/matrix_crawler_consolidated_{timestamp}.csv"
+              
+              with open(filename, 'w', newline='') as f:
+                  if all_data:
+                      fieldnames = all_data[0].keys()
+                      writer = csv.DictWriter(f, fieldnames=fieldnames)
+                      writer.writeheader()
+                      writer.writerows(all_data)
+              
+              print(f"✅ Exported consolidated data to: {filename}")
+              
+              # Create summary
+              summary_file = f"database_exports/export_summary_{timestamp}.md"
+              with open(summary_file, 'w') as f:
+                  f.write(f"# Matrix Crawler Database Export Summary\n\n")
+                  f.write(f"**Export Date:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                  f.write(f"**Timestamp:** {timestamp}\n")
+                  f.write(f"**Total Repositories:** {len(all_data)}\n")
+                  f.write(f"**Alphabet Partitions:** {', '.join(sorted(alphabet_partitions))}\n")
+                  if alphabet_filter:
+                      f.write(f"**Filter Applied:** {alphabet_filter}\n")
+                  f.write(f"\n## Top 10 Repositories by Stars\n\n")
+                  f.write(f"| Owner | Repository | Stars | Alphabet |\n")
+                  f.write(f"|-------|------------|-------|----------|\n")
+                  
+                  for i, repo in enumerate(all_data[:10]):
+                      f.write(f"| {repo.get('owner', 'N/A')} | {repo.get('name', 'N/A')} | {repo.get('stars', 'N/A')} | {repo.get('alphabet_partition', 'N/A')} |\n")
+              
+              print(f"✅ Created summary: {summary_file}")
+              
+              # Print statistics
+              print(f"\n📊 Export Statistics:")
+              print(f"   Total repositories: {len(all_data)}")
+              print(f"   Alphabet partitions: {len(alphabet_partitions)}")
+              print(f"   Top repository: {all_data[0]['owner']}/{all_data[0]['name']} ({all_data[0]['stars']} stars)")
+
+          if __name__ == "__main__":
+              main()
+          EOF
+
+          # Set environment variables for the script
+          export TIMESTAMP="$timestamp"
+          export ALPHABET_FILTER="$alphabet_filter"
+          export GITHUB_REPOSITORY="${{ github.repository }}"
+
+          # Run the export script
+          python export_matrix_data.py
+
+      - name: Configure Git
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+
+      - name: Commit Database Exports
+        run: |
+          timestamp="${{ steps.timestamp.outputs.timestamp }}"
+          alphabet_filter="${{ github.event.inputs.alphabet_partition }}"
+
+          # Add exported files
+          git add database_exports/
+
+          # Check if there are changes to commit
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+
+          # Create commit message
+          if [[ -n "$alphabet_filter" ]]; then
+            commit_msg="feat: matrix crawler database export ${timestamp} - partition ${alphabet_filter}"
+          else
+            commit_msg="feat: matrix crawler database export ${timestamp} - all partitions"
+          fi
+
+          # Commit changes
+          git commit -m "$commit_msg"
+
+          echo "✅ Committed database exports with message: $commit_msg"
+
+      - name: Push Changes
+        uses: ad-m/github-push-action@master
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ github.ref }}
+
+      - name: Upload Export Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: matrix-database-exports-${{ steps.timestamp.outputs.timestamp }}
+          path: database_exports/
+          retention-days: 90
+
+      - name: Display Results
+        run: |
+          echo "🎉 Matrix Crawler Database Export Complete!"
+          echo ""
+          echo "📁 Files committed to repository:"
+          ls -la database_exports/ | tail -n +2
+          echo ""
+          echo "🔗 Files are also available as workflow artifacts"
+          echo "📊 Check the export summary for detailed statistics"

@@ -1,0 +1,8 @@
+aiohttp
+asyncio
+tenacity
+asyncpg
+pydantic
+pydantic-settings
+python-dotenv
+python-dateutil

@@ -1,0 +1,157 @@
+name: Master Hierarchical Crawler Coordinator
+on:
+  workflow_dispatch:
+    inputs:
+      total_repos_per_partition:
+        description: "Total repositories to collect per alphabet partition"
+        required: true
+        default: "10000"
+        type: string
+      matrix_size:
+        description: "Number of parallel runners per alphabet partition"
+        required: true
+        default: "20"
+        type: string
+      mode:
+        description: "Crawling mode"
+        required: true
+        default: "stars-only"
+        type: choice
+        options:
+          - stars-only
+          - full-archive
+
+jobs:
+  coordinate-alphabetical-crawl:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        alphabet_workflow:
+          - {
+              name: "A-B Organizations",
+              workflow: "matrix-crawler-a-b.yml",
+              filter: "ab",
+            }
+          - {
+              name: "C-D Organizations",
+              workflow: "matrix-crawler-c-d.yml",
+              filter: "cd",
+            }
+          - {
+              name: "E-F Organizations",
+              workflow: "matrix-crawler-e-f.yml",
+              filter: "ef",
+            }
+          - {
+              name: "G-H Organizations",
+              workflow: "matrix-crawler-g-h.yml",
+              filter: "gh",
+            }
+          - {
+              name: "I-J Organizations",
+              workflow: "matrix-crawler-i-j.yml",
+              filter: "ij",
+            }
+          - {
+              name: "K-L Organizations",
+              workflow: "matrix-crawler-k-l.yml",
+              filter: "kl",
+            }
+          - {
+              name: "M-N Organizations",
+              workflow: "matrix-crawler-m-n.yml",
+              filter: "mn",
+            }
+          - {
+              name: "O-P Organizations",
+              workflow: "matrix-crawler-o-p.yml",
+              filter: "op",
+            }
+          - {
+              name: "Q-R Organizations",
+              workflow: "matrix-crawler-q-r.yml",
+              filter: "qr",
+            }
+          - {
+              name: "S-Z Organizations",
+              workflow: "matrix-crawler-s-z.yml",
+              filter: "sz",
+            }
+
+    steps:
+      - name: Trigger Alphabetical Partition Workflow
+        run: |
+          echo "🚀 Triggering workflow for ${{ matrix.alphabet_workflow.name }}"
+          echo "📊 Configuration:"
+          echo "  - Alphabet Filter: ${{ matrix.alphabet_workflow.filter }}"
+          echo "  - Repositories per partition: ${{ github.event.inputs.total_repos_per_partition }}"
+          echo "  - Matrix runners: ${{ github.event.inputs.matrix_size }}"
+          echo "  - Mode: ${{ github.event.inputs.mode }}"
+
+          # Trigger the alphabet-specific workflow using GitHub CLI
+          gh workflow run ${{ matrix.alphabet_workflow.workflow }} \
+            --field total_repos="${{ github.event.inputs.total_repos_per_partition }}" \
+            --field matrix_size="${{ github.event.inputs.matrix_size }}" \
+            --field mode="${{ github.event.inputs.mode }}"
+
+          echo "✅ Successfully triggered ${{ matrix.alphabet_workflow.name }} workflow"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  summary:
+    needs: coordinate-alphabetical-crawl
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Generate Coordination Summary
+        run: |
+          echo "# Hierarchical GitHub Crawler - Master Coordination Summary" > COORDINATION_SUMMARY.md
+          echo "" >> COORDINATION_SUMMARY.md
+          echo "## Overview" >> COORDINATION_SUMMARY.md
+          echo "This master workflow coordinated the execution of 10 alphabetical partition workflows," >> COORDINATION_SUMMARY.md
+          echo "each using internal matrix parallelization for maximum throughput." >> COORDINATION_SUMMARY.md
+          echo "" >> COORDINATION_SUMMARY.md
+          echo "## Configuration" >> COORDINATION_SUMMARY.md
+          echo "- **Total Alphabet Partitions:** 10" >> COORDINATION_SUMMARY.md
+          echo "- **Repositories per Partition:** ${{ github.event.inputs.total_repos_per_partition }}" >> COORDINATION_SUMMARY.md
+          echo "- **Matrix Runners per Partition:** ${{ github.event.inputs.matrix_size }}" >> COORDINATION_SUMMARY.md
+          echo "- **Total Matrix Runners:** $((${{ github.event.inputs.matrix_size }} * 10))" >> COORDINATION_SUMMARY.md
+          echo "- **Total Target Repositories:** $((${{ github.event.inputs.total_repos_per_partition }} * 10))" >> COORDINATION_SUMMARY.md
+          echo "- **Crawling Mode:** ${{ github.event.inputs.mode }}" >> COORDINATION_SUMMARY.md
+          echo "" >> COORDINATION_SUMMARY.md
+          echo "## Alphabet Partitions Triggered" >> COORDINATION_SUMMARY.md
+          echo "| Partition | Organizations | Workflow File | Filter |" >> COORDINATION_SUMMARY.md
+          echo "|-----------|---------------|---------------|--------|" >> COORDINATION_SUMMARY.md
+          echo "| A-B | Organizations starting with A or B | matrix-crawler-a-b.yml | ab |" >> COORDINATION_SUMMARY.md
+          echo "| C-D | Organizations starting with C or D | matrix-crawler-c-d.yml | cd |" >> COORDINATION_SUMMARY.md
+          echo "| E-F | Organizations starting with E or F | matrix-crawler-e-f.yml | ef |" >> COORDINATION_SUMMARY.md
+          echo "| G-H | Organizations starting with G or H | matrix-crawler-g-h.yml | gh |" >> COORDINATION_SUMMARY.md
+          echo "| I-J | Organizations starting with I or J | matrix-crawler-i-j.yml | ij |" >> COORDINATION_SUMMARY.md
+          echo "| K-L | Organizations starting with K or L | matrix-crawler-k-l.yml | kl |" >> COORDINATION_SUMMARY.md
+          echo "| M-N | Organizations starting with M or N | matrix-crawler-m-n.yml | mn |" >> COORDINATION_SUMMARY.md
+          echo "| O-P | Organizations starting with O or P | matrix-crawler-o-p.yml | op |" >> COORDINATION_SUMMARY.md
+          echo "| Q-R | Organizations starting with Q or R | matrix-crawler-q-r.yml | qr |" >> COORDINATION_SUMMARY.md
+          echo "| S-Z | Organizations starting with S through Z | matrix-crawler-s-z.yml | sz |" >> COORDINATION_SUMMARY.md
+          echo "" >> COORDINATION_SUMMARY.md
+          echo "## Hierarchical Parallelization Strategy" >> COORDINATION_SUMMARY.md
+          echo "1. **Level 1 (Alphabetical):** 10 workflows running simultaneously" >> COORDINATION_SUMMARY.md
+          echo "2. **Level 2 (Matrix):** Each workflow uses ${{ github.event.inputs.matrix_size }} parallel runners" >> COORDINATION_SUMMARY.md
+          echo "3. **Level 3 (Async):** Each runner uses async workers for concurrent API calls" >> COORDINATION_SUMMARY.md
+          echo "" >> COORDINATION_SUMMARY.md
+          echo "## Expected Results" >> COORDINATION_SUMMARY.md
+          echo "Each alphabet partition will produce:" >> COORDINATION_SUMMARY.md
+          echo "- Consolidated CSV with all repositories for that alphabet range" >> COORDINATION_SUMMARY.md
+          echo "- JSON export with structured data" >> COORDINATION_SUMMARY.md
+          echo "- Summary report with top repositories by stars" >> COORDINATION_SUMMARY.md
+          echo "- Individual partition artifacts for debugging" >> COORDINATION_SUMMARY.md
+          echo "" >> COORDINATION_SUMMARY.md
+          echo "## Next Steps" >> COORDINATION_SUMMARY.md
+          echo "After all alphabet workflows complete, run the final consolidation workflow" >> COORDINATION_SUMMARY.md
+          echo "to merge results from all 10 alphabet partitions into a single global dataset." >> COORDINATION_SUMMARY.md
+
+      - name: Upload Coordination Summary
+        uses: actions/upload-artifact@v3
+        with:
+          name: hierarchical-crawler-coordination-summary
+          path: COORDINATION_SUMMARY.md

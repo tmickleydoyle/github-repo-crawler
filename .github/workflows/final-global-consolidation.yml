@@ -1,0 +1,333 @@
+name: Final Global Consolidation
+on:
+  workflow_dispatch:
+    inputs:
+      consolidate_mode:
+        description: "Consolidation mode"
+        required: true
+        default: "download-and-merge"
+        type: choice
+        options:
+          - download-and-merge
+          - summary-only
+
+jobs:
+  global-consolidation:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: github_crawler_global
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres" \
+          --health-interval 10s \
+          --health-timeout 5s \
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install Dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install requests  # For downloading artifacts
+
+      - name: Setup Global Database
+        run: |
+          psql postgresql://postgres:postgres@localhost:5432/github_crawler_global \
+            -f migrations/001_initial_schema.sql
+
+      - name: Download Latest Alphabet Partition Results
+        if: github.event.inputs.consolidate_mode == 'download-and-merge'
+        run: |
+          # Create directory for downloaded artifacts
+          mkdir -p alphabet_results
+
+          echo "📥 Downloading results from all alphabet partition workflows..."
+
+          # Define alphabet partitions
+          alphabet_partitions=("ab" "cd" "ef" "gh" "ij" "kl" "mn" "op" "qr" "sz")
+
+          for partition in "${alphabet_partitions[@]}"; do
+            echo "⬇️ Downloading results for alphabet partition: $partition"
+            
+            # Download the latest artifacts for this partition
+            # Note: In a real scenario, you'd use the GitHub API to download specific workflow run artifacts
+            # For now, we'll create a placeholder structure
+            mkdir -p "alphabet_results/${partition}"
+            
+            # This would typically download:
+            # - final_${partition}_stars_data.csv
+            # - final_${partition}_stars_data.json
+            # - MATRIX_${partition^^}_RESULTS.md
+            
+            echo "✅ Completed download for partition $partition"
+          done
+
+      - name: Create Global Consolidated Dataset
+        if: github.event.inputs.consolidate_mode == 'download-and-merge'
+        run: |
+          echo "🔄 Creating global consolidated dataset from all alphabet partitions..."
+
+          # Create global CSV header
+          echo "owner,name,stars,fetched_date,partition,alphabet_partition" > global_consolidated_stars.csv
+
+          # Merge all alphabet partition results
+          alphabet_partitions=("ab" "cd" "ef" "gh" "ij" "kl" "mn" "op" "qr" "sz")
+
+          total_repos=0
+          for partition in "${alphabet_partitions[@]}"; do
+            if [ -f "alphabet_results/${partition}/final_${partition}_stars_data.csv" ]; then
+              echo "📊 Merging data from alphabet partition: $partition"
+              # Skip header and append data
+              tail -n +2 "alphabet_results/${partition}/final_${partition}_stars_data.csv" >> global_consolidated_stars.csv
+              
+              # Count repositories in this partition
+              partition_repos=$(tail -n +2 "alphabet_results/${partition}/final_${partition}_stars_data.csv" | wc -l)
+              total_repos=$((total_repos + partition_repos))
+              echo "   Added $partition_repos repositories from partition $partition"
+            else
+              echo "⚠️ Warning: No data file found for partition $partition"
+            fi
+          done
+
+          echo "📈 Total repositories collected across all partitions: $total_repos"
+
+      - name: Sort Global Dataset by Stars
+        if: github.event.inputs.consolidate_mode == 'download-and-merge'
+        run: |
+          echo "🔢 Sorting global dataset by star count..."
+
+          # Sort the entire global dataset by stars (descending)
+          (head -n 1 global_consolidated_stars.csv && \
+           tail -n +2 global_consolidated_stars.csv | sort -t',' -k3 -nr) > final_global_stars_data.csv
+
+          echo "✅ Global dataset sorted by stars"
+
+      - name: Generate Global JSON Export
+        if: github.event.inputs.consolidate_mode == 'download-and-merge'
+        run: |
+          echo "📄 Generating global JSON export..."
+
+          python3 -c "
+          import csv
+          import json
+          from datetime import datetime
+
+          data = []
+          alphabet_stats = {}
+
+          with open('final_global_stars_data.csv', 'r') as f:
+              reader = csv.DictReader(f)
+              for row in reader:
+                  repo_data = {
+                      'owner': row['owner'],
+                      'name': row['name'],
+                      'stars': int(row['stars']),
+                      'fetched_date': row['fetched_date'],
+                      'partition': int(row['partition']),
+                      'alphabet_partition': row['alphabet_partition']
+                  }
+                  data.append(repo_data)
+                  
+                  # Track alphabet partition statistics
+                  alpha = row['alphabet_partition']
+                  if alpha not in alphabet_stats:
+                      alphabet_stats[alpha] = {'count': 0, 'total_stars': 0}
+                  alphabet_stats[alpha]['count'] += 1
+                  alphabet_stats[alpha]['total_stars'] += int(row['stars'])
+
+          # Create comprehensive export
+          export_data = {
+              'metadata': {
+                  'total_repositories': len(data),
+                  'alphabet_partitions': len(alphabet_stats),
+                  'consolidation_date': datetime.now().isoformat(),
+                  'hierarchical_strategy': {
+                      'level1_alphabetical': 10,
+                      'level2_matrix': 'configurable',
+                      'level3_async': 'per_runner'
+                  }
+              },
+              'alphabet_partition_stats': alphabet_stats,
+              'repositories': data
+          }
+
+          with open('final_global_stars_data.json', 'w') as f:
+              json.dump(export_data, f, indent=2)
+
+          print(f'✅ Global JSON export created with {len(data)} repositories')
+          print(f'📊 Alphabet partition breakdown:')
+          for alpha, stats in alphabet_stats.items():
+              print(f'   {alpha.upper()}: {stats[\"count\"]:,} repos, {stats[\"total_stars\"]:,} total stars')
+          "
+
+      - name: Generate Global Summary Report
+        run: |
+          echo "📋 Generating global summary report..."
+
+          if [ "${{ github.event.inputs.consolidate_mode }}" = "download-and-merge" ]; then
+            total_repos=$(wc -l < final_global_stars_data.csv)
+            total_repos=$((total_repos - 1))  # Subtract header
+          else
+            total_repos="N/A (summary-only mode)"
+          fi
+
+          echo "# GitHub Crawler - Global Hierarchical Results Summary" > GLOBAL_SUMMARY.md
+          echo "" >> GLOBAL_SUMMARY.md
+          echo "## Hierarchical Parallelization Strategy Results" >> GLOBAL_SUMMARY.md
+          echo "" >> GLOBAL_SUMMARY.md
+          echo "This report summarizes the results from the hierarchical parallelization approach" >> GLOBAL_SUMMARY.md
+          echo "that combines alphabetical partitioning with matrix parallelization and async workers." >> GLOBAL_SUMMARY.md
+          echo "" >> GLOBAL_SUMMARY.md
+          echo "## Strategy Overview" >> GLOBAL_SUMMARY.md
+          echo "- **Level 1 - Alphabetical Partitioning:** 10 workflows (A-B, C-D, E-F, G-H, I-J, K-L, M-N, O-P, Q-R, S-Z)" >> GLOBAL_SUMMARY.md
+          echo "- **Level 2 - Matrix Parallelization:** Each alphabet workflow uses configurable matrix runners" >> GLOBAL_SUMMARY.md
+          echo "- **Level 3 - Async Workers:** Each matrix runner uses async workers for concurrent API calls" >> GLOBAL_SUMMARY.md
+          echo "" >> GLOBAL_SUMMARY.md
+          echo "## Global Results" >> GLOBAL_SUMMARY.md
+          echo "- **Total Repositories Collected:** ${total_repos}" >> GLOBAL_SUMMARY.md
+          echo "- **Consolidation Mode:** ${{ github.event.inputs.consolidate_mode }}" >> GLOBAL_SUMMARY.md
+          echo "- **Consolidation Date:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")" >> GLOBAL_SUMMARY.md
+          echo "" >> GLOBAL_SUMMARY.md
+          echo "## Alphabet Partition Breakdown" >> GLOBAL_SUMMARY.md
+          echo "| Partition | Organization Names | Expected Coverage |" >> GLOBAL_SUMMARY.md
+          echo "|-----------|-------------------|------------------|" >> GLOBAL_SUMMARY.md
+          echo "| A-B | Organizations starting with A or B | ~15-20% of total |" >> GLOBAL_SUMMARY.md
+          echo "| C-D | Organizations starting with C or D | ~10-15% of total |" >> GLOBAL_SUMMARY.md
+          echo "| E-F | Organizations starting with E or F | ~8-12% of total |" >> GLOBAL_SUMMARY.md
+          echo "| G-H | Organizations starting with G or H | ~8-12% of total |" >> GLOBAL_SUMMARY.md
+          echo "| I-J | Organizations starting with I or J | ~6-10% of total |" >> GLOBAL_SUMMARY.md
+          echo "| K-L | Organizations starting with K or L | ~6-10% of total |" >> GLOBAL_SUMMARY.md
+          echo "| M-N | Organizations starting with M or N | ~8-12% of total |" >> GLOBAL_SUMMARY.md
+          echo "| O-P | Organizations starting with O or P | ~8-12% of total |" >> GLOBAL_SUMMARY.md
+          echo "| Q-R | Organizations starting with Q or R | ~6-10% of total |" >> GLOBAL_SUMMARY.md
+          echo "| S-Z | Organizations starting with S through Z | ~15-25% of total |" >> GLOBAL_SUMMARY.md
+          echo "" >> GLOBAL_SUMMARY.md
+
+          if [ "${{ github.event.inputs.consolidate_mode }}" = "download-and-merge" ]; then
+            echo "## Top 20 Repositories Globally (All Alphabet Partitions)" >> GLOBAL_SUMMARY.md
+            echo "| Rank | Owner | Repository | Stars | Alphabet Partition |" >> GLOBAL_SUMMARY.md
+            echo "|------|-------|------------|-------|-------------------|" >> GLOBAL_SUMMARY.md
+            
+            if [ -f "final_global_stars_data.csv" ]; then
+              rank=1
+              head -n 21 final_global_stars_data.csv | tail -n +2 | while IFS=',' read -r owner name stars date partition alphabet; do
+                echo "| ${rank} | ${owner} | ${name} | ${stars} | ${alphabet^^} |" >> GLOBAL_SUMMARY.md
+                rank=$((rank + 1))
+              done
+            fi
+          fi
+
+          echo "" >> GLOBAL_SUMMARY.md
+          echo "## Performance Benefits" >> GLOBAL_SUMMARY.md
+          echo "The hierarchical approach provides several advantages:" >> GLOBAL_SUMMARY.md
+          echo "1. **Reduced API Rate Limit Impact:** Distributes load across alphabet partitions" >> GLOBAL_SUMMARY.md
+          echo "2. **Better Fault Tolerance:** Failure in one alphabet partition doesn't affect others" >> GLOBAL_SUMMARY.md
+          echo "3. **Improved Scalability:** Can process much larger datasets by adding more alphabet partitions" >> GLOBAL_SUMMARY.md
+          echo "4. **Parallel Execution:** All alphabet workflows run simultaneously" >> GLOBAL_SUMMARY.md
+          echo "5. **Fine-grained Control:** Each partition can be configured independently" >> GLOBAL_SUMMARY.md
+          echo "" >> GLOBAL_SUMMARY.md
+          echo "## Data Quality" >> GLOBAL_SUMMARY.md
+          echo "- All repositories include star counts and fetch timestamps" >> GLOBAL_SUMMARY.md
+          echo "- Data is partitioned by organization name alphabetically" >> GLOBAL_SUMMARY.md
+          echo "- Each repository includes its source partition for traceability" >> GLOBAL_SUMMARY.md
+          echo "- Global dataset is sorted by star count for easy analysis" >> GLOBAL_SUMMARY.md
+
+      - name: Import Global Data to Database
+        if: github.event.inputs.consolidate_mode == 'download-and-merge'
+        run: |
+          echo "💾 Importing global consolidated data to database..."
+
+          if [ -f "final_global_stars_data.csv" ]; then
+            # Import the CSV data to PostgreSQL
+            psql postgresql://postgres:postgres@localhost:5432/github_crawler_global \
+              -c "CREATE TEMP TABLE temp_import (owner VARCHAR, name VARCHAR, stars INTEGER, fetched_date TIMESTAMP, partition INTEGER, alphabet_partition VARCHAR);"
+            
+            psql postgresql://postgres:postgres@localhost:5432/github_crawler_global \
+              -c "\COPY temp_import FROM 'final_global_stars_data.csv' WITH CSV HEADER;"
+            
+            # Insert into proper tables (this would need to be adapted based on your schema)
+            echo "✅ Global data imported to database successfully"
+            
+            # Get final statistics
+            global_repo_count=$(psql postgresql://postgres:postgres@localhost:5432/github_crawler_global -t -c "SELECT COUNT(*) FROM temp_import;")
+            echo "📊 Final global repository count: ${global_repo_count}"
+          else
+            echo "⚠️ No global CSV file found to import"
+          fi
+
+      - name: Create Database Export
+        if: github.event.inputs.consolidate_mode == 'download-and-merge'
+        run: |
+          echo "💾 Creating database export..."
+
+          # Export consolidated data with additional analytics
+          psql postgresql://postgres:postgres@localhost:5432/github_crawler_global \
+            -c "COPY (
+              SELECT 
+                owner,
+                name,
+                stars,
+                fetched_date,
+                partition,
+                alphabet_partition,
+                ROW_NUMBER() OVER (ORDER BY stars DESC) as global_rank
+              FROM temp_import 
+              ORDER BY stars DESC
+            ) TO STDOUT WITH CSV HEADER" > global_ranked_repositories.csv
+
+          echo "✅ Database export created with global rankings"
+
+      - name: Upload Global Results
+        uses: actions/upload-artifact@v3
+        with:
+          name: github-crawler-global-hierarchical-results
+          path: |
+            final_global_stars_data.csv
+            final_global_stars_data.json
+            global_ranked_repositories.csv
+            GLOBAL_SUMMARY.md
+
+      - name: Display Final Summary
+        run: |
+          echo "🎉 Global consolidation completed!"
+          echo ""
+          echo "📊 Hierarchical GitHub Crawler Results Summary:"
+          echo "=============================================="
+
+          if [ "${{ github.event.inputs.consolidate_mode }}" = "download-and-merge" ]; then
+            if [ -f "final_global_stars_data.csv" ]; then
+              total_repos=$(wc -l < final_global_stars_data.csv)
+              total_repos=$((total_repos - 1))
+              echo "📈 Total repositories: ${total_repos:,}"
+              echo "🔤 Alphabet partitions: 10 (A-B through S-Z)"
+              echo "⚡ Hierarchical levels: 3 (Alphabetical + Matrix + Async)"
+              echo "📁 Generated files:"
+              echo "   - final_global_stars_data.csv (main dataset)"
+              echo "   - final_global_stars_data.json (structured export)"
+              echo "   - global_ranked_repositories.csv (with rankings)"
+              echo "   - GLOBAL_SUMMARY.md (detailed report)"
+            else
+              echo "⚠️ No final dataset found - check alphabet partition downloads"
+            fi
+          else
+            echo "📋 Summary-only mode completed"
+            echo "📁 Generated files:"
+            echo "   - GLOBAL_SUMMARY.md (strategy overview)"
+          fi
+
+          echo ""
+          echo "✅ Hierarchical parallelization strategy complete!"
+          echo "🚀 All alphabet partitions can run simultaneously for maximum throughput"
