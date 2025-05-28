@@ -18,12 +18,12 @@ class Repo(BaseModel):
     This model stores the essential information about a repository
     that is collected from the GitHub API and stored in the database.
     """
-    id: int                                    # GitHub's unique repository ID
-    name: str                                  # Repository name (e.g., "react")
-    owner: str                                 # Owner/organization name (e.g., "facebook")
-    url: str                                   # Full GitHub URL
-    created_at: datetime                       # When the repo was created on GitHub
-    alphabet_partition: Optional[str] = None   # Crawling partition identifier
+    id: int
+    name: str
+    owner: str
+    url: str
+    created_at: datetime
+    alphabet_partition: Optional[str] = None
     
     @field_validator('created_at', mode='before')
     @classmethod
@@ -46,10 +46,10 @@ class RepoStats(BaseModel):
     This model stores metrics like star counts that change over time,
     allowing for historical tracking and trend analysis.
     """
-    repo_id: int = Field(..., alias="repoId")  # Foreign key to repo table
-    fetched_date: date                         # Date when stats were collected
-    stars: int                                 # Number of stars at this date
-    
+    repo_id: int = Field(..., alias="repoId")
+    fetched_date: date
+    stars: int
+
     class Config:
         """Pydantic configuration for the model."""
-        populate_by_name = True  # Allow both 'repo_id' and 'repoId' field names
+        populate_by_name = True

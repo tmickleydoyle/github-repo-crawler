@@ -467,15 +467,6 @@ jobs:
           echo "  - Duplicate repos skipped: ${SKIPPED_DUPLICATES}"
           echo "  - Deduplication rate: $(( (SKIPPED_DUPLICATES * 100) / TOTAL_REPO_ROWS ))% overlap between jobs"
 
-      - name: Create database dump
-        run: |
-          export PGPASSWORD="${{ env.POSTGRES_PASSWORD }}"
-          pg_dump -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} \
-                  -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} \
-                  --no-owner --no-privileges > github_repositories.sql
-
-          echo "📦 Database dump created: $(wc -l < github_repositories.sql) lines"
-
       - name: Create final export
         run: |
           export PGPASSWORD="${{ env.POSTGRES_PASSWORD }}"
@@ -498,8 +489,8 @@ jobs:
       - name: Copy to database_exports directory
         run: |
           mkdir -p database_exports
-          cp github_repositories.sql github_repositories_final.csv database_exports/
-          echo "✅ Copied export files to database_exports directory"
+          cp github_repositories_final.csv database_exports/
+          echo "✅ Copied export to database_exports directory"
 
       - name: Commit and push database exports
         run: |
@@ -515,7 +506,6 @@ jobs:
         with:
           name: final-results
           path: |
-            github_repositories.sql
             github_repositories_final.csv
             database_exports/
 
@@ -526,7 +516,6 @@ jobs:
           echo "📊 Results:"
           echo "- Matrix jobs: ${{ github.event.inputs.matrix_size || '10' }}"
           echo "- Target per job: ${{ github.event.inputs.max_repos_per_job || '1000' }}"
-          echo "- Database dump: github_repositories.sql"
           echo "- CSV export: github_repositories_final.csv"
           echo ""
           if [ -f github_repositories_final.csv ]; then

@@ -1,421 +1,420 @@
-# GitHub Crawler with Hierarchical Parallelization
+# GitHub Star Crawler
 
-A highly scalable GitHub repository crawler that uses hierarchical parallelization to efficiently collect repository metadata while respecting API rate limits.
+A high-performance, scalable Python application that crawls GitHub repositories using the GraphQL API to collect star counts and repository metadata. This project implements a parallel crawling architecture designed to efficiently handle large-scale data collection while respecting GitHub's rate limits.
 
-## 🚀 Quick Start
+## 📋 Project Overview
 
-### Usage (Hierarchical Approach)
-```bash
-# Trigger hierarchical crawler (10 alphabets × 20 runners = 200 parallel runners)
-# Default mode is stars-only - no code downloading
-gh workflow run master-hierarchical-coordinator.yml \
-  --field total_repos_per_partition="10000" \
-  --field matrix_size="20" \
-  --field mode="stars-only"
+This project fulfills the requirements outlined in [ORIGINAL_README.md](./ORIGINAL_README.md) by implementing:
 
-# Optional: Enable full archive mode to download repository code
-gh workflow run master-hierarchical-coordinator.yml \
-  --field total_repos_per_partition="10000" \
-  --field matrix_size="20" \
-  --field mode="full-archive"
-```
+- **Parallel GraphQL API crawling** using GitHub's GraphQL API v4
+- **PostgreSQL database** with optimized schema for efficient updates
+- **Rate limit handling** with exponential backoff and retry mechanisms
+- **Matrix-based parallel execution** for scalable data collection
+- **GitHub Actions CI/CD pipeline** with PostgreSQL service containers
+- **Database export functionality** with CSV outputs
 
-## 🎯 Crawling Modes
+### Key Features
 
-The matrix crawler workflows support two distinct modes:
+- 🚀 **High Performance**: Matrix-based parallel crawling
+- 📊 **Scalable Architecture**: Designed to handle 100K+ repositories efficiently
+- 🔄 **Retry Mechanisms**: Robust error handling with exponential backoff
+- 📈 **Historical Tracking**: Time-series data storage for star count evolution
+- 🛡️ **Rate Limit Compliance**: Intelligent rate limiting to respect GitHub API limits
+- 🗃️ **Optimized Database**: Efficient schema with proper indexing and conflict resolution
 
-### Stars-Only Mode (Default)
-- **Purpose:** Collect repository metadata and star counts only
-- **Performance:** Fast execution, minimal storage requirements
-- **Artifacts:** CSV files with repository data (name, owner, stars, etc.)
-- **Use Case:** Analytics, trending analysis, repository discovery
-
-```bash
-# Runs in stars-only mode by default
-gh workflow run master-hierarchical-coordinator.yml
-```
-
-### Full Archive Mode
-- **Purpose:** Download complete repository source code + metadata
-- **Performance:** Slower execution, high storage requirements  
-- **Artifacts:** CSV files + tar.gz archives of repository files
-- **Use Case:** Code analysis, backup, offline repository access
-
-```bash
-# Explicitly enable full archive mode
-gh workflow run master-hierarchical-coordinator.yml \
-  --field mode="full-archive"
-```
-
-### Conditional Artifact Uploads
-- **Stars-Only Mode:** Only CSV files are uploaded as artifacts
-- **Full Archive Mode:** Both CSV files AND tar.gz archives are uploaded
-- **Storage Optimization:** Prevents unnecessary storage usage in stars-only mode
-
-## 📋 Original Requirements
-
-This project fulfills a take-home exercise with the following specifications:
-
-- **Goal:** Collect star counts for 100,000 GitHub repositories using GraphQL API
-- **Database:** Store data in PostgreSQL with flexible, efficient schema
-- **Rate Limits:** Respect GitHub API limits with retry mechanisms
-- **Pipeline:** Complete GitHub Actions workflow with service containers
-- **Scalability:** Design for potential 500M repository scale
-
-### GitHub Actions Pipeline Components ✅
-1. ✅ PostgreSQL service container
-2. ✅ Setup & dependency installation steps  
-3. ✅ Database schema creation (`setup-postgres`)
-4. ✅ API crawling step (`crawl-stars`) collecting 100,000+ repositories
-5. ✅ Database export with CSV/JSON artifacts
-6. ✅ Runs with default GitHub token (no admin privileges required)
-
-## 🏗️ Architecture Overview
-
-### Three-Level Hierarchical Parallelization
+## 🏗️ Architecture
 
 ```
-Level 1: Alphabetical Partitioning
-├── 10 simultaneous workflows (A-B, C-D, ..., S-Z)
-│
-Level 2: Matrix Parallelization  
-├── 20 parallel runners per alphabet workflow
-│
-Level 3: Async Workers
-└── Concurrent API calls within each runner
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│   GitHub API    │◄───│  Python Crawler  │───►│   PostgreSQL    │
+│   (GraphQL v4)  │    │  (Matrix Jobs)    │    │   Database      │
+└─────────────────┘    └──────────────────┘    └─────────────────┘
+                              │
+                              ▼
+                       ┌─────────────────┐
+                       │  Data Exports   │
+                       │  (CSV + SQL)    │
+                       └─────────────────┘
 ```
 
-**Total Parallelization:** 10 alphabets × 20 runners = **200 parallel processes**
+## 🛠️ Technology Stack
+
+- **Python 3.11+** with asyncio for concurrent operations
+- **aiohttp** for async HTTP requests to GitHub API
+- **asyncpg** for high-performance PostgreSQL operations
+- **Pydantic** for data validation and serialization
+- **Tenacity** for retry mechanisms with exponential backoff
+- **PostgreSQL 14+** for data storage
+- **GitHub Actions** for CI/CD and automated crawling
 
 ## 📂 Project Structure
 
 ```
-├── .github/workflows/          # GitHub Actions workflows
-│   ├── matrix-crawler-a-b.yml      # Alphabet partition: A-B
-│   ├── matrix-crawler-c-d.yml      # Alphabet partition: C-D  
-│   ├── ...                         # Other alphabet partitions
-│   ├── master-hierarchical-coordinator.yml  # Master coordinator
-│   ├── final-global-consolidation.yml       # Global result merger
-│   ├── matrix-database-export.yml           # Matrix artifact to CSV exporter
-│   └── database-export-commit.yml           # Full database to CSV exporter
-├── crawler/                    # Python crawler implementation
-│   ├── main.py                     # CLI entry point with alphabet filtering
-│   ├── client.py                   # GitHub GraphQL client with alphabet support
-│   ├── database.py                 # PostgreSQL data layer
-│   └── models.py                   # Data models and schemas
-├── migrations/                 # Database schema definitions
-│   └── 001_initial_schema.sql     # Table creation scripts
-├── database_exports/           # Exported CSV files with timestamps
-│   └── README.md                   # Export documentation
-├── HIERARCHICAL_PARALLELIZATION.md # Detailed strategy documentation
-└── SCALING_ANALYSIS.md            # 500M repository scaling analysis
+github-crawler-task/
+├── crawler/                    # Core crawler package
+│   ├── __init__.py
+│   ├── main.py                # Entry point and orchestration
+│   ├── client.py              # GitHub API client with GraphQL
+│   ├── config.py              # Configuration management
+│   ├── models.py              # Pydantic data models
+│   └── repository.py          # Database operations layer
+├── migrations/                 # Database schema migrations
+│   ├── 001_initial_schema.sql
+│   ├── 002_add_alphabet_partition.sql
+│   ├── 003_expand_language_partition.sql
+│   └── 004_add_name_with_owner.sql
+├── .github/workflows/          # CI/CD pipeline
+│   └── parallel-star-crawler.yml
+├── database_exports/           # Generated data exports
+├── configure_pipeline.py       # Pipeline validation helper
+├── docker-compose.yml          # Local PostgreSQL setup
+├── requirements.txt           # Python dependencies
+└── README.md                  # This file
 ```
 
-## 🗄️ Database Schema
+## 🚀 Quick Start
 
-Designed for efficiency and future extensibility:
+### Prerequisites
 
-```sql
--- Core repository data
-CREATE TABLE IF NOT EXISTS repo (
-  id             BIGINT PRIMARY KEY,
-  name           TEXT     NOT NULL,
-  owner          TEXT     NOT NULL,
-  url            TEXT     NOT NULL,
-  created_at     TIMESTAMP,
-  alphabet_partition VARCHAR(10)  -- Added for alphabet-based partitioning
-);
+- Python 3.11 or higher
+- PostgreSQL 14+ (or use Docker Compose)
+- GitHub Personal Access Token with `repo` scope
 
--- Time-series star data for tracking changes
-CREATE TABLE IF NOT EXISTS repo_stats (
-  repo_id        BIGINT    NOT NULL REFERENCES repo(id) ON DELETE CASCADE,
-  fetched_date   DATE      NOT NULL,
-  stars          INT       NOT NULL,
-  PRIMARY KEY(repo_id, fetched_date)
-);
+### 1. Environment Setup
 
--- Repository archive storage tracking
-CREATE TABLE IF NOT EXISTS repo_archives (
-  repo_id        BIGINT    NOT NULL REFERENCES repo(id) ON DELETE CASCADE,
-  fetched_date   DATE      NOT NULL,
-  archive_path   TEXT      NOT NULL,
-  PRIMARY KEY(repo_id, fetched_date)
-);
-
--- File index for repository contents
-CREATE TABLE IF NOT EXISTS repo_file_index (
-  repo_id      BIGINT    NOT NULL REFERENCES repo(id) ON DELETE CASCADE,
-  fetched_date DATE      NOT NULL,
-  path         TEXT      NOT NULL,
-  content_sha  TEXT      NOT NULL,
-  PRIMARY KEY(repo_id, fetched_date, path)
-);
-
--- Indexes for optimal query performance
-CREATE INDEX IF NOT EXISTS idx_repo_alphabet_partition ON repo(alphabet_partition);
-CREATE INDEX IF NOT EXISTS idx_repo_alphabet_owner ON repo(alphabet_partition, owner);
-```
-
-### Schema Benefits
-- **Separation of Concerns:** Repository identity vs. time-series metrics vs. archive storage
-- **Efficient Updates:** New star counts don't affect repository records
-- **Future Extensibility:** Dedicated tables for archives and file indexing
-- **Query Optimization:** Indexed for alphabet-based partitioning and owner lookups
-- **Archive Tracking:** Complete file inventory with SHA tracking for deduplication
-- **Partition Support:** Alphabet-based partitioning enables distributed crawling
-
-## 🚀 Performance Features
-
-### Rate Limit Management
-- **Exponential Backoff:** Automatic retry with increasing delays
-- **Token Validation:** Pre-flight checks for API quota
-- **Distributed Load:** Alphabet partitioning spreads API calls
-- **Concurrent Safety:** Async workers with proper rate limiting
-
-### Scalability Optimizations
-- **Matrix Parallelization:** Configurable runner count per workflow
-- **Alphabet Partitioning:** Reduces GitHub search result pagination
-- **Database Per Partition:** Eliminates cross-partition contention
-- **Fault Isolation:** Failures in one alphabet don't affect others
-
-### Performance Metrics (Hierarchical vs. Single Matrix)
-
-| Aspect | Single Matrix | Hierarchical | Improvement |
-|--------|---------------|---------------|-------------|
-| Parallel Runners | 40 | 200 | 5x |
-| Simultaneous Workflows | 1 | 10 | 10x |
-| API Rate Limit Risk | High | Distributed | ~90% reduction |
-| Fault Tolerance | Single Point | Isolated | Much better |
-
-## 📊 Usage Examples
-
-### 1. Standard Collection (100K repositories - Stars Only)
 ```bash
-gh workflow run master-hierarchical-coordinator.yml \
-  --field total_repos_per_partition="10000" \
-  --field matrix_size="20" \
-  --field mode="stars-only"
-```
-
-### 2. High-Volume Collection (1M repositories - Stars Only)  
-```bash
-gh workflow run master-hierarchical-coordinator.yml \
-  --field total_repos_per_partition="100000" \
-  --field matrix_size="30" \
-  --field mode="stars-only"
-```
-
-### 3. Full Archive Collection (with code downloading)
-```bash
-gh workflow run master-hierarchical-coordinator.yml \
-  --field total_repos_per_partition="10000" \
-  --field matrix_size="20" \
-  --field mode="full-archive"
-```
-
-## 📈 Scaling to 500M Repositories
-
-For enterprise-scale deployment, see [SCALING_ANALYSIS.md](SCALING_ANALYSIS.md):
-
-### Key Strategies
-1. **Horizontal Alphabet Scaling:** Split into 100+ alphabet micro-partitions
-2. **Cloud Infrastructure:** Multi-region deployment with load balancing  
-3. **Database Sharding:** Partition by alphabet or repository ID ranges
-4. **Caching Layer:** Redis for hot repository data and API responses
-5. **Stream Processing:** Kafka for real-time updates and continuous crawling
-
-### Expected Infrastructure
-- **Compute:** 1000+ parallel workers across multiple regions
-- **Storage:** Distributed PostgreSQL cluster with 10TB+ capacity
-- **Network:** CDN for artifact distribution and API proxy caching
-- **Monitoring:** Real-time dashboards for rate limits and data quality
-
-## 🔧 Development Setup
-
-### Local Development
-```bash
-# Clone repository
-git clone <repository-url>
+# Clone the repository
+git clone git@github.com:magic-task-submissions/github-crawler-task_tmickleydoyle.git
 cd github-crawler-task
 
-# Setup environment
-python -m venv venv
-source venv/bin/activate
+# Install Python dependencies
 pip install -r requirements.txt
 
-# Configure environment
-cp .env.example .env
-# Edit .env with your GITHUB_TOKEN
-
-# Start local database
-docker-compose up -d postgres
-
-# Run database migrations
-psql postgresql://postgres:postgres@localhost:5432/github_crawler \
-  -f migrations/001_initial_schema.sql
-
-# Test crawler locally
-python -m crawler.main --stars-only --matrix-total 1 --matrix-index 0 --repos 100
+# Set up environment variables
+export GITHUB_TOKEN="your_github_personal_access_token"
+export POSTGRES_HOST="localhost"
+export POSTGRES_PORT="5432"
+export POSTGRES_DB="github_crawler"
+export POSTGRES_USER="postgres"
+export POSTGRES_PASSWORD="postgres"
 ```
 
-### Docker Deployment
+### 2. Database Setup
+
+**Option A: Using Docker Compose (Recommended)**
 ```bash
-# Build and run complete stack
-docker-compose up --build
+# Start PostgreSQL container
+docker-compose up -d
 
-# View logs
-docker-compose logs -f crawler
+# Wait for database to be ready
+sleep 10
 ```
 
-## 📋 Workflow Execution Guide
-
-### Step 1: Initial Crawl
-Start with the hierarchical coordinator for maximum throughput:
+**Option B: Local PostgreSQL Installation**
 ```bash
-gh workflow run master-hierarchical-coordinator.yml
+# Create database (adjust connection details as needed)
+createdb github_crawler
+
+# Run migrations
+psql -d github_crawler -f migrations/001_initial_schema.sql
+psql -d github_crawler -f migrations/002_add_alphabet_partition.sql
 ```
 
-### Step 2: Monitor Progress
-- Each alphabet workflow (A-B, C-D, etc.) runs independently
-- Check Actions tab for real-time progress
-- Download individual partition artifacts if needed
+### 3. Run the Crawler
 
-### Step 3: Global Consolidation
-After all alphabets complete, merge results:
+**Single Job (Development)**
 ```bash
-gh workflow run final-global-consolidation.yml \
-  --field consolidate_mode="download-and-merge"
+# Crawl 1000 repositories (default)
+python -m crawler.main
+
+# Crawl specific number of repositories
+python -m crawler.main --repos 5000
 ```
 
-### Step 4: Database Export and Commit
-After workflows complete, export database contents to CSV files and commit to repository:
+**Matrix Jobs (Production)**
 ```bash
-# Export all alphabet partitions
-gh workflow run matrix-database-export.yml
+# Run as part of a 10-job matrix (job index 0)
+python -m crawler.main --matrix-total 10 --matrix-index 0
 
-# Export specific alphabet partition
-gh workflow run matrix-database-export.yml \
-  --field alphabet_partition="ab"
-
-# Full database export (imports artifacts first)
-gh workflow run database-export-commit.yml \
-  --field export_mode="all-tables" \
-  --field commit_message="Database export after crawl completion"
+# Run different matrix job
+python -m crawler.main --matrix-total 10 --matrix-index 1
 ```
 
-### Step 5: Access Results
-Download consolidated artifacts or access committed CSV files:
-- `final_global_stars_data.csv` - Complete dataset sorted by stars
-- `final_global_stars_data.json` - Structured data with metadata
-- `GLOBAL_SUMMARY.md` - Analysis report with top repositories
-- `database_exports/matrix_crawler_*.csv` - Committed database exports with timestamps
+### 4. Validate Setup
 
-## 💾 Database Export Features
-
-### Automated CSV Generation
-Two specialized workflows handle database export and version control:
-
-1. **Matrix Database Export** (`matrix-database-export.yml`)
-   - Downloads artifacts from completed matrix crawler workflows
-   - Consolidates data across alphabet partitions
-   - Exports to timestamped CSV files
-   - Commits results to repository automatically
-
-2. **Full Database Export** (`database-export-commit.yml`) 
-   - Imports all workflow artifacts into a consolidated database
-   - Exports all database tables to CSV with timestamps
-   - Supports selective export modes (all-tables, repo-only, stats-only)
-   - Generates export summaries with statistics
-
-### Export Workflow Examples
 ```bash
-# Quick export from recent matrix workflows
-gh workflow run matrix-database-export.yml
-
-# Export specific alphabet partition only
-gh workflow run matrix-database-export.yml --field alphabet_partition="ab"
-
-# Full database export with all tables
-gh workflow run database-export-commit.yml --field export_mode="all-tables"
-
-# Export only repository data
-gh workflow run database-export-commit.yml --field export_mode="repo-only"
+# Run validation script
+python configure_pipeline.py
 ```
 
-### File Naming Convention
-All exported files follow the pattern: `{table_name}_{YYYYMMDD_HHMMSS}.csv`
+## 🤖 GitHub Actions Usage
 
-Examples:
-- `matrix_crawler_consolidated_20250525_143022.csv`
-- `repo_20250525_143022.csv`
-- `repo_stats_20250525_143022.csv`
+This project includes a sophisticated GitHub Actions workflow that implements the requirements from the original specification.
 
-## 🧪 Testing Strategy
+### Running the Full Crawler Pipeline
 
-### Local Testing
+1. **Navigate to your repository on GitHub**
+2. **Go to Actions tab**
+3. **Select "Parallel GitHub Star Crawler" workflow**
+4. **Click "Run workflow"**
+5. **Configure parameters:**
+   - **Matrix Size**: Number of parallel jobs (1-200, default: 200)
+   - **Max Repos per Job**: Target repositories per job (default: 1000)
+
+### Workflow Parameters
+
+| Parameter | Description | Default | Range |
+|-----------|-------------|---------|-------|
+| `matrix_size` | Number of parallel crawler jobs | 200 | 1-200 |
+| `max_repos_per_job` | Target repositories per job | 1000 | 100-5000 |
+
+### Example Configurations
+
+**Quick Test (Small Scale)**
+```yaml
+matrix_size: 10
+max_repos_per_job: 500
+```
+
+**Production Run (Target 100K repositories)**
+```yaml
+matrix_size: 200
+max_repos_per_job: 1000
+```
+
+**High-Density Collection**
+```yaml
+matrix_size: 100
+max_repos_per_job: 2000
+```
+
+## 📊 What to Expect After GitHub Actions Runs
+
+### 1. **Workflow Execution**
+
+The workflow consists of three main phases:
+
+**Phase 1: Validation**
+- Code validation and dependency checks
+- GitHub API authentication verification
+- Matrix generation for parallel jobs
+
+**Phase 2: Parallel Crawling**
+- Multiple jobs running simultaneously
+- Real-time progress logging
+- Individual job data exports
+
+**Phase 3: Aggregation**
+- Data consolidation from all jobs
+- Duplicate removal and final exports
+- Repository commit with results
+
+### 2. **Generated Artifacts**
+
+After successful execution, you'll find:
+
+**In the Repository:**
+```
+database_exports/
+└── github_repositories_final.csv # CSV export with star data and replace each time to prevent many large files stored in the repo
+```
+
+**As GitHub Actions Artifacts:**
+- `final-results` - Complete aggregated data
+- `crawler-job-N` - Individual job outputs (N = job index)
+
+### 3. **Expected Data Structure**
+
+**CSV Output Format** (`github_repositories_final.csv`):
+```csv
+id,name,name_with_owner,url,created_at,stars,crawled_at
+123456789,"react","facebook/react","https://github.com/facebook/react","2013-05-24 16:15:54",200000,"2025-05-28"
+987654321,"vue","vuejs/vue","https://github.com/vuejs/vue","2013-07-29 03:24:51",195000,"2025-05-28"
+```
+
+**Database Schema:**
+```sql
+-- Repository metadata
+repo (id, name, owner, url, created_at, alphabet_partition, name_with_owner)
+
+-- Time-series star data  
+repo_stats (repo_id, fetched_date, stars)
+```
+
+### 4. **Success Indicators**
+
+✅ **Successful Run:**
+- All matrix jobs complete without errors
+- Final CSV contains expected number of repositories
+- No rate limit violations in logs
+- Database exports generated successfully
+
+⚠️ **Partial Success:**
+- Some matrix jobs fail but aggregation completes
+- Reduced repository count but valid data
+- Rate limiting encountered but handled gracefully
+
+❌ **Failed Run:**
+- GitHub API authentication issues
+- Database connection problems
+- Invalid configuration parameters
+
+### 5. **Log Output Examples**
+
+**Successful Job Log:**
+```
+🚀 Matrix Job 1/200
+🎯 Target: 1000 repositories  
+🔑 GitHub token length: 40 characters
+✅ GitHub API authentication successful
+📋 Authenticated as: username
+🚦 Rate limit remaining: 4999
+🔍 Fetching repositories batch 1/10...
+✅ Stored 1000 repositories in repo table with star data
+⏱️ Collection completed in 45.23 seconds
+🚀 Rate: 22.11 repositories/second
+✅ Matrix job 0 completed successfully!
+```
+
+**Aggregation Summary:**
+```
+📊 Aggregation Summary:
+  - Total rows processed: 195,000 repos, 195,000 stats
+  - Final unique records: 98,456 repos, 98,456 stats  
+  - Duplicate repos skipped: 96,544
+  - Deduplication rate: 49% overlap between jobs
+✅ Total repositories collected: 98,456
+```
+
+## 🔧 Configuration
+
+### Environment Variables
+
+| Variable | Description | Default | Required |
+|----------|-------------|---------|----------|
+| `GITHUB_TOKEN` | GitHub Personal Access Token | - | ✅ |
+| `POSTGRES_HOST` | PostgreSQL host | localhost | ✅ |
+| `POSTGRES_PORT` | PostgreSQL port | 5432 | ✅ |
+| `POSTGRES_DB` | Database name | github_crawler | ✅ |
+| `POSTGRES_USER` | Database user | postgres | ✅ |
+| `POSTGRES_PASSWORD` | Database password | postgres | ✅ |
+| `MAX_REPOS` | Max repositories per job | 1000 | ❌ |
+
+### GitHub Token Setup
+
+1. Go to [GitHub Settings > Developer Settings > Personal Access Tokens](https://github.com/settings/tokens)
+2. Click "Generate new token (classic)"
+3. Select scopes: `public_repo` (minimum)
+4. Copy the token
+5. Add as repository secret named `GITHUB_TOKEN`
+
+## 🏃‍♂️ GitHub Actions Setup
+
+### Repository Secrets
+
+Ensure your repository has the following secret configured:
+
+- `GITHUB_TOKEN` - Your GitHub Personal Access Token
+
+### Workflow Features
+
+- **Automatic PostgreSQL service container** setup
+- **Matrix-based parallel execution** with configurable size
+- **Rate limit handling** with intelligent backoff
+- **Data deduplication** across parallel jobs
+- **Automatic artifact upload** and repository commits
+- **Comprehensive logging** with progress tracking
+
+### Manual Workflow Dispatch
+
+The workflow can be triggered manually with custom parameters:
+
+1. Navigate to Actions → Parallel GitHub Star Crawler
+2. Click "Run workflow"
+3. Set desired matrix size and repositories per job
+4. Click "Run workflow"
+
+## 📈 Scaling Considerations
+
+### For 500 Million Repositories
+
+As outlined in the original requirements, scaling to 500M repositories would require:
+
+1. **Infrastructure Changes:**
+   - Distributed crawler deployment across multiple regions
+   - Database sharding by repository characteristics
+   - Message queue (Redis/RabbitMQ) for job coordination
+
+2. **Architecture Modifications:**
+   - Microservices architecture with separate crawler instances
+   - Stream processing (Apache Kafka) for real-time data
+   - ElasticSearch for full-text search capabilities
+   - Data lake storage (S3/GCS) for long-term analytics
+
+3. **Performance Optimizations:**
+   - Connection pooling with higher limits
+   - Batch processing with larger batch sizes
+   - Horizontal partitioning by repository age/activity
+   - Caching layer for frequently accessed data
+
+### Schema Evolution
+
+The current schema supports future metadata expansion:
+
+```sql
+-- Future tables for additional GitHub data
+CREATE TABLE repo_issues (
+    id BIGINT PRIMARY KEY,
+    repo_id BIGINT REFERENCES repo(id),
+    title TEXT,
+    state VARCHAR(20),
+    created_at TIMESTAMP
+);
+
+CREATE TABLE repo_pulls (
+    id BIGINT PRIMARY KEY,
+    repo_id BIGINT REFERENCES repo(id),
+    title TEXT,
+    state VARCHAR(20),
+    created_at TIMESTAMP
+);
+
+CREATE TABLE pull_comments (
+    id BIGINT PRIMARY KEY,
+    pull_id BIGINT REFERENCES repo_pulls(id),
+    body TEXT,
+    created_at TIMESTAMP
+);
+```
+
+## 🐛 Troubleshooting
+
+### Common Issues
+
+**GitHub API Rate Limiting:**
 ```bash
-# Test crawler with minimal dataset
-python -m crawler.main --stars-only --matrix-total 1 --matrix-index 0 --repos 100
-
-# Test alphabet filtering
-python -m crawler.main --alphabet-filter "ab" --matrix-total 2 --matrix-index 0 --repos 50
-
-# Test with specific partition size
-python -m crawler.main --stars-only --matrix-total 10 --partition-size 1000
+# Check current rate limit
+curl -H "Authorization: Bearer $GITHUB_TOKEN" \
+     https://api.github.com/rate_limit
 ```
 
-### Database Validation
+**Database Connection Issues:**
 ```bash
-# Validate database schema
-psql postgresql://postgres:postgres@localhost:5432/github_crawler -c "\d+"
-
-# Check partition distribution
-psql postgresql://postgres:postgres@localhost:5432/github_crawler \
-  -c "SELECT alphabet_partition, COUNT(*) FROM repo GROUP BY alphabet_partition;"
+# Test PostgreSQL connection
+pg_isready -h localhost -p 5432 -U postgres
 ```
 
-### Performance Testing
+**Token Authentication:**
 ```bash
-# Test rate limit handling with larger dataset
-python -m crawler.main --stars-only --matrix-total 5 --repos 5000
-
-# Benchmark alphabet filtering performance  
-python -m crawler.main --alphabet-filter "sz" --matrix-total 5 --repos 1000
+# Verify token permissions
+curl -H "Authorization: Bearer $GITHUB_TOKEN" \
+     https://api.github.com/user
 ```
 
-## 📚 Documentation
+### Debug Mode
 
-- **[HIERARCHICAL_PARALLELIZATION.md](HIERARCHICAL_PARALLELIZATION.md)** - Detailed strategy guide
-- **[SCALING_ANALYSIS.md](SCALING_ANALYSIS.md)** - 500M repository scaling plan  
-- **[ORIGINAL_README.md](ORIGINAL_README.md)** - Original exercise requirements
-
-## 🤝 Contributing
-
-### Code Style
-- Follow PEP 8 for Python code
-- Use type hints for all function parameters
-- Maintain async/await patterns for API calls
-- Add comprehensive docstrings
-
-### Pull Request Process
-1. Create feature branch from `main`
-2. Add tests for new functionality
-3. Update documentation as needed
-4. Ensure all workflows pass
-5. Request review from maintainers
-
-## 📄 License
-
-This project is developed for educational and evaluation purposes as part of a technical assessment.
-
-## 🏆 Key Achievements
-
-✅ **Original Requirements Met:** Complete GitHub Actions pipeline with 100K+ repository collection  
-✅ **Performance Optimized:** 5x parallelization improvement with hierarchical approach  
-✅ **Scalability Designed:** Architecture ready for 500M repository scale  
-✅ **Production Ready:** Fault-tolerant, rate-limit aware, comprehensive monitoring  
-✅ **Well Documented:** Detailed guides for usage, scaling, and contribution  
-
----
-
-**Built with ❤️ for scalable GitHub repository analysis**
+Enable verbose logging:
+```bash
+export LOG_LEVEL=DEBUG
+python -m crawler.main --repos 100
+```

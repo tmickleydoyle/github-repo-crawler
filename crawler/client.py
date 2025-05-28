@@ -112,7 +112,6 @@ class GitHubClient:
             response = await self._post(session, self.graphql_url, payload)
             if "errors" in response:
                 print(f"⚠️ GraphQL errors: {response['errors']}")
-                # Check for specific error types
                 for error in response['errors']:
                     if 'FORBIDDEN' in str(error) or 'Unauthorized' in str(error):
                         raise Exception(f"GitHub API authentication failed: {error}")
@@ -152,7 +151,6 @@ class GitHubClient:
     def get_search_queries(self, matrix_index: int = 0, matrix_total: int = 1) -> List[str]:
         """Generate search queries with fine-grained partitions for public repos only"""
         if matrix_total == 1:
-            # Single job: use broad but still partitioned queries
             return [
                 "is:public stars:0..1 sort:updated",
                 "is:public stars:2..5 sort:updated", 
@@ -161,10 +159,7 @@ class GitHubClient:
             ]
         
         queries = []
-        
-        # Fine-grained partitioning strategy for better distribution
-        
-        # Popular languages for partitioning
+
         languages = [
             "javascript", "python", "java", "typescript", "go", "rust", "php", "c",
             "c++", "c#", "shell", "ruby", "kotlin", "swift", "scala", "dart",
@@ -172,44 +167,39 @@ class GitHubClient:
             "powershell", "objective-c", "perl", "haskell", "lua", "vim-script", "none"
         ]
         
-        # Much smaller star buckets for better partitioning
         star_buckets = [
             "0", "1", "2..3", "4..5", "6..8", "9..12", "13..18", "19..25",
             "26..35", "36..50", "51..75", "76..100", "101..150", "151..250",
             "251..400", "401..650", "651..1000", "1001..1500", "1501..2500", ">2500"
         ]
         
-        # Smaller date ranges (quarterly partitions over recent years)
         date_ranges = [
-            "2024-10-01..2025-12-31",  # Recent
-            "2024-07-01..2024-09-30",  # Q3 2024
-            "2024-04-01..2024-06-30",  # Q2 2024
-            "2024-01-01..2024-03-31",  # Q1 2024
-            "2023-10-01..2023-12-31",  # Q4 2023
-            "2023-07-01..2023-09-30",  # Q3 2023
-            "2023-04-01..2023-06-30",  # Q2 2023
-            "2023-01-01..2023-03-31",  # Q1 2023
-            "2022-07-01..2022-12-31",  # H2 2022
-            "2022-01-01..2022-06-30",  # H1 2022
-            "2021-01-01..2021-12-31",  # 2021
-            "2020-01-01..2020-12-31",  # 2020
-            "2019-01-01..2019-12-31",  # 2019
-            "..2018-12-31"             # Before 2019
+            "2024-10-01..2025-12-31",
+            "2024-07-01..2024-09-30",
+            "2024-04-01..2024-06-30",
+            "2024-01-01..2024-03-31",
+            "2023-10-01..2023-12-31",
+            "2023-07-01..2023-09-30",
+            "2023-04-01..2023-06-30",
+            "2023-01-01..2023-03-31",
+            "2022-07-01..2022-12-31",
+            "2022-01-01..2022-06-30",
+            "2021-01-01..2021-12-31",
+            "2020-01-01..2020-12-31",
+            "2019-01-01..2019-12-31",
+            "..2018-12-31"
         ]
         
-        # Repository name partitioning (more granular)
         name_ranges = [
             "a..b", "c..d", "e..f", "g..h", "i..j", "k..l", "m..n", "o..p", 
             "q..r", "s..t", "u..v", "w..x", "y..z", "0..4", "5..9", "-"
         ]
         
-        # Calculate dimensions
         total_languages = len(languages)
         total_stars = len(star_buckets)
         total_dates = len(date_ranges)
         total_names = len(name_ranges)
         
-        # Multi-dimensional partitioning
         lang_index = matrix_index % total_languages
         star_index = (matrix_index // total_languages) % total_stars
         date_index = (matrix_index // (total_languages * total_stars)) % total_dates
@@ -220,17 +210,13 @@ class GitHubClient:
         selected_date = date_ranges[date_index]
         selected_name = name_ranges[name_index]
         
-        # Build highly specific queries - all repositories are public
         base_filters = ["is:public"]
         
-        # Language filter
         if selected_lang == "none":
-            # Query for repositories without a detected language
             base_filters.append("NOT language:javascript NOT language:python NOT language:java NOT language:typescript NOT language:go")
         else:
             base_filters.append(f"language:{selected_lang}")
         
-        # Star filter (more granular)
         if selected_stars == "0":
             base_filters.append("stars:0")
         elif selected_stars == "1":
@@ -240,15 +226,12 @@ class GitHubClient:
         else:
             base_filters.append(f"stars:{selected_stars}")
         
-        # Date filter for created date
         if selected_date.startswith(".."):
             base_filters.append(f"created:{selected_date}")
         else:
             base_filters.append(f"created:{selected_date}")
         
-        # Repository name filter (first character)
         if selected_name == "-":
-            # Repositories starting with special characters
             base_filters.append("NOT name:a* NOT name:b* NOT name:c* NOT name:d* NOT name:e* NOT name:f* NOT name:g* NOT name:h* NOT name:i* NOT name:j* NOT name:k* NOT name:l* NOT name:m* NOT name:n* NOT name:o* NOT name:p* NOT name:q* NOT name:r* NOT name:s* NOT name:t* NOT name:u* NOT name:v* NOT name:w* NOT name:x* NOT name:y* NOT name:z* NOT name:0* NOT name:1* NOT name:2* NOT name:3* NOT name:4* NOT name:5* NOT name:6* NOT name:7* NOT name:8* NOT name:9*")
         elif ".." in selected_name:
             start, end = selected_name.split("..")
@@ -256,18 +239,15 @@ class GitHubClient:
         else:
             base_filters.append(f"name:{selected_name}*")
         
-        # Primary query with all filters
         primary_query = " ".join(base_filters) + " sort:updated"
         queries.append(primary_query)
         
-        # Fallback query with relaxed name filter but keeping other constraints
-        fallback_filters = base_filters[:-1]  # Remove name filter
+        fallback_filters = base_filters[:-1]
         fallback_query = " ".join(fallback_filters) + " sort:stars"
         queries.append(fallback_query)
         
-        # Third query with relaxed date filter for broader coverage
         if len(base_filters) > 3:
-            broader_filters = base_filters[:-2]  # Remove date and name filters
+            broader_filters = base_filters[:-2]
             broader_query = " ".join(broader_filters) + " sort:updated"
             queries.append(broader_query)
         
@@ -284,14 +264,14 @@ class GitHubClient:
         repos = []
         repo_ids = set()
         target_repos = settings.max_repos
-        max_workers = 5  # Number of concurrent requests per query
+        max_workers = 5
         semaphore = asyncio.Semaphore(max_workers)
         progress_intervals = [0.1, 0.25, 0.5, 0.75, 0.9]
         last_reported = 0
 
         async def fetch_pages(search_query):
             queue = asyncio.Queue()
-            await queue.put(None)  # Start with no cursor
+            await queue.put(None)
             local_repos = []
             local_ids = set()
             stop_flag = False
@@ -330,24 +310,21 @@ class GitHubClient:
                             if batch_duplicates > 0:
                                 print(f"🔄 Found {batch_duplicates} duplicate repos in batch (skipped)")
                             
-                            # Merge local results into global
                             if batch_added > 0:
-                                repos.extend(local_repos[-batch_added:])  # Only add new repos
+                                repos.extend(local_repos[-batch_added:])
                                 repo_ids.update(local_ids)
-                                local_repos = local_repos[:-batch_added]  # Remove processed repos
+                                local_repos = local_repos[:-batch_added]
                                 local_ids.clear()
                                 
                             if len(repos) % 100 == 0 and len(repos) > 0:
                                 print(f"📊 Collected {len(repos)} unique repositories so far...")
                                 
-                            # Progress reporting
                             current_progress = len(repos) / target_repos
                             for threshold in progress_intervals:
                                 if current_progress >= threshold and last_reported < threshold:
                                     print(f"📈 Progress milestone: {threshold*100:.0f}% complete ({len(repos)}/{target_repos} repos)")
                                     last_reported = threshold
                                     break
-                            # Enqueue next page
                             if search_result["pageInfo"]["hasNextPage"] and len(repos) < target_repos:
                                 await queue.put(search_result["pageInfo"]["endCursor"])
                             else:
@@ -359,7 +336,6 @@ class GitHubClient:
                             stop_flag = True
                             break
             
-            # Launch workers
             workers = [asyncio.create_task(worker()) for _ in range(max_workers)]
             await queue.join()
             stop_flag = True
@@ -385,7 +361,6 @@ class GitHubClient:
         print(f"⭐ Total stars: {total_stars:,}")
         print(f"📈 Average stars: {avg_stars:.1f}")
         
-        # Check for potential overlaps with other matrix jobs
         if len(final_repos) < target_repos:
             print(f"⚠️ Warning: Only collected {len(final_repos)}/{target_repos} repos. Search space may be exhausted for this partition.")
         
