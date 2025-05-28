@@ -57,18 +57,30 @@ github-crawler-task/
 │   ├── client.py              # GitHub API client with GraphQL
 │   ├── config.py              # Configuration management
 │   ├── models.py              # Pydantic data models
-│   └── repository.py          # Database operations layer
+│   ├── domain.py              # Domain models and business logic
+│   ├── repository.py          # Database operations layer
+│   └── search_strategy.py     # Search strategy implementations
 ├── migrations/                 # Database schema migrations
 │   ├── 001_initial_schema.sql
 │   ├── 002_add_alphabet_partition.sql
 │   ├── 003_expand_language_partition.sql
 │   └── 004_add_name_with_owner.sql
+├── tests/                      # Test suite
+│   ├── __init__.py
+│   ├── conftest.py
+│   ├── test_client.py
+│   ├── test_domain.py
+│   ├── test_integration.py
+│   └── test_search_strategy.py
 ├── .github/workflows/          # CI/CD pipeline
-│   └── parallel-star-crawler.yml
+│   ├── parallel-star-crawler.yml
+│   └── code-quality.yml
 ├── database_exports/           # Generated data exports
 ├── configure_pipeline.py       # Pipeline validation helper
 ├── docker-compose.yml          # Local PostgreSQL setup
 ├── requirements.txt           # Python dependencies
+├── pytest.ini                # Test configuration
+├── setup.cfg                 # Development tools configuration
 └── README.md                  # This file
 ```
 
@@ -94,7 +106,7 @@ pip install -r requirements.txt
 export GITHUB_TOKEN="your_github_personal_access_token"
 export POSTGRES_HOST="localhost"
 export POSTGRES_PORT="5432"
-export POSTGRES_DB="github_crawler"
+export POSTGRES_DB="crawler"
 export POSTGRES_USER="postgres"
 export POSTGRES_PASSWORD="postgres"
 ```
@@ -113,18 +125,18 @@ sleep 10
 **Option B: Local PostgreSQL Installation**
 ```bash
 # Create database (adjust connection details as needed)
-createdb github_crawler
+createdb crawler
 
 # Run migrations
-psql -d github_crawler -f migrations/001_initial_schema.sql
-psql -d github_crawler -f migrations/002_add_alphabet_partition.sql
+psql -d crawler -f migrations/001_initial_schema.sql
+psql -d crawler -f migrations/002_add_alphabet_partition.sql
 ```
 
 ### 3. Run the Crawler
 
 **Single Job (Development)**
 ```bash
-# Crawl 1000 repositories (default)
+# Crawl 4000 repositories (default)
 python -m crawler.main
 
 # Crawl specific number of repositories
@@ -159,14 +171,14 @@ This project includes a sophisticated GitHub Actions workflow that implements th
 4. **Click "Run workflow"**
 5. **Configure parameters:**
    - **Matrix Size**: Number of parallel jobs (1-200, default: 200)
-   - **Max Repos per Job**: Target repositories per job (default: 1000)
+   - **Max Repos per Job**: Target repositories per job (default: 4000)
 
 ### Workflow Parameters
 
 | Parameter | Description | Default | Range |
 |-----------|-------------|---------|-------|
 | `matrix_size` | Number of parallel crawler jobs | 200 | 1-200 |
-| `max_repos_per_job` | Target repositories per job | 1000 | 100-5000 |
+| `max_repos_per_job` | Target repositories per job | 4000 | 100-5000 |
 
 ### Example Configurations
 
@@ -176,16 +188,16 @@ matrix_size: 10
 max_repos_per_job: 500
 ```
 
-**Production Run (Target 100K repositories)**
+**Production Run (Target 800K repositories)**
 ```yaml
 matrix_size: 200
-max_repos_per_job: 1000
+max_repos_per_job: 4000
 ```
 
 **High-Density Collection**
 ```yaml
 matrix_size: 100
-max_repos_per_job: 2000
+max_repos_per_job: 8000
 ```
 
 ## 📊 What to Expect After GitHub Actions Runs
@@ -264,26 +276,26 @@ repo_stats (repo_id, fetched_date, stars)
 **Successful Job Log:**
 ```
 🚀 Matrix Job 1/200
-🎯 Target: 1000 repositories  
+🎯 Target: 4000 repositories  
 🔑 GitHub token length: 40 characters
 ✅ GitHub API authentication successful
 📋 Authenticated as: username
 🚦 Rate limit remaining: 4999
-🔍 Fetching repositories batch 1/10...
-✅ Stored 1000 repositories in repo table with star data
-⏱️ Collection completed in 45.23 seconds
-🚀 Rate: 22.11 repositories/second
+🔍 Fetching repositories batch 1/40...
+✅ Stored 4000 repositories in repo table with star data
+⏱️ Collection completed in 120.45 seconds
+🚀 Rate: 33.22 repositories/second
 ✅ Matrix job 0 completed successfully!
 ```
 
 **Aggregation Summary:**
 ```
 📊 Aggregation Summary:
-  - Total rows processed: 195,000 repos, 195,000 stats
-  - Final unique records: 98,456 repos, 98,456 stats  
-  - Duplicate repos skipped: 96,544
-  - Deduplication rate: 49% overlap between jobs
-✅ Total repositories collected: 98,456
+  - Total rows processed: 780,000 repos, 780,000 stats
+  - Final unique records: 456,789 repos, 456,789 stats  
+  - Duplicate repos skipped: 323,211
+  - Deduplication rate: 41% overlap between jobs
+✅ Total repositories collected: 456,789
 ```
 
 ## 🔧 Configuration
@@ -295,10 +307,10 @@ repo_stats (repo_id, fetched_date, stars)
 | `GITHUB_TOKEN` | GitHub Personal Access Token | - | ✅ |
 | `POSTGRES_HOST` | PostgreSQL host | localhost | ✅ |
 | `POSTGRES_PORT` | PostgreSQL port | 5432 | ✅ |
-| `POSTGRES_DB` | Database name | github_crawler | ✅ |
+| `POSTGRES_DB` | Database name | crawler | ✅ |
 | `POSTGRES_USER` | Database user | postgres | ✅ |
 | `POSTGRES_PASSWORD` | Database password | postgres | ✅ |
-| `MAX_REPOS` | Max repositories per job | 1000 | ❌ |
+| `MAX_REPOS` | Max repositories per job | 4000 | ❌ |
 
 ### GitHub Token Setup
 

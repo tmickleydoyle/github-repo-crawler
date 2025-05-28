@@ -76,9 +76,9 @@ async def store_repositories(crawl_result: CrawlResult, matrix_index: int):
         conn = await asyncpg.connect(
             host=os.getenv("POSTGRES_HOST", "localhost"),
             port=int(os.getenv("POSTGRES_PORT", 5432)),
-            user=os.getenv("POSTGRES_USER", "crawler_user"),
-            password=os.getenv("POSTGRES_PASSWORD", "crawler_password"),
-            database=os.getenv("POSTGRES_DB", "github_crawler"),
+            user=os.getenv("POSTGRES_USER", "postgres"),
+            password=os.getenv("POSTGRES_PASSWORD", "postgres"),
+            database=os.getenv("POSTGRES_DB", "crawler"),
         )
 
         # Ensure tables exist with proper schema (matching migrations)

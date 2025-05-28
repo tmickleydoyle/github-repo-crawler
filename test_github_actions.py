@@ -23,7 +23,7 @@ async def test_github_actions_simulation():
     os.environ["MAX_REPOS"] = "1000"
     os.environ["POSTGRES_HOST"] = "localhost"
     os.environ["POSTGRES_PORT"] = "5432"
-    os.environ["POSTGRES_DB"] = "github_crawler"
+    os.environ["POSTGRES_DB"] = "crawler"
     os.environ["POSTGRES_USER"] = "crawler_user"
     os.environ["POSTGRES_PASSWORD"] = "crawler_password"
     

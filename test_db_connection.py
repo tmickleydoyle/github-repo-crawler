@@ -25,7 +25,7 @@ async def test_database_connection():
             "port": 5432,
             "user": "postgres",
             "password": "postgres",
-            "database": "github_crawler"
+            "database": "crawler"
         },
         {
             "name": "Original Config (crawler_user)",
@@ -33,7 +33,7 @@ async def test_database_connection():
             "port": 5432,
             "user": "crawler_user",
             "password": "crawler_password",
-            "database": "github_crawler"
+            "database": "crawler"
         }
     ]
     
@@ -82,7 +82,7 @@ async def test_crawler_with_new_db_config():
     # Set environment variables to match GitHub Actions
     os.environ["POSTGRES_HOST"] = "localhost"
     os.environ["POSTGRES_PORT"] = "5432"
-    os.environ["POSTGRES_DB"] = "github_crawler"
+    os.environ["POSTGRES_DB"] = "crawler"
     os.environ["POSTGRES_USER"] = "postgres"
     os.environ["POSTGRES_PASSWORD"] = "postgres"
     os.environ["MAX_REPOS"] = "10"  # Small number for testing
