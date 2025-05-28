@@ -283,6 +283,7 @@ jobs:
           set -e  # Exit on any error
           echo "🏃 Starting Python crawler..."
           python -m crawler.main \
+            --repos ${MAX_REPOS} \
             --matrix-total ${{ github.event.inputs.matrix_size || '10' }} \
             --matrix-index ${{ matrix.job_index }} || {
             echo "❌ Crawler failed with exit code $?"
