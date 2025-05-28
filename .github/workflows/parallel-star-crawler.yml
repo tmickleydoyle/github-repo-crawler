@@ -10,7 +10,7 @@ on:
       matrix_size:
         description: "Number of parallel crawler jobs (1-200)"
         required: false
-        default: "100"
+        default: "200"
         type: string
       max_repos_per_job:
         description: "Max repositories per job"

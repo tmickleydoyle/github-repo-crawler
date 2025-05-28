@@ -150,76 +150,129 @@ class GitHubClient:
             raise
 
     def get_search_queries(self, matrix_index: int = 0, matrix_total: int = 1) -> List[str]:
-        """Generate search queries that balance specificity with results availability"""
+        """Generate search queries with fine-grained partitions for public repos only"""
         if matrix_total == 1:
-            # Single job: use broad queries
+            # Single job: use broad but still partitioned queries
             return [
-                "is:public stars:>=1 sort:updated",
-                "is:public stars:0 sort:updated", 
-                "is:public sort:updated"
+                "is:public stars:0..1 sort:updated",
+                "is:public stars:2..5 sort:updated", 
+                "is:public stars:6..10 sort:updated",
+                "is:public stars:11..25 sort:updated"
             ]
         
         queries = []
         
-        # Simplified strategy focusing on language and star distribution
-        # Avoid overly restrictive combinations that yield no results
+        # Fine-grained partitioning strategy for better distribution
         
         # Popular languages for partitioning
         languages = [
             "javascript", "python", "java", "typescript", "go", "rust", "php", "c",
             "c++", "c#", "shell", "ruby", "kotlin", "swift", "scala", "dart",
-            "r", "html", "css", "dockerfile", "yaml", "json", "none"
+            "r", "html", "css", "dockerfile", "yaml", "json", "markdown", "tex",
+            "powershell", "objective-c", "perl", "haskell", "lua", "vim-script", "none"
         ]
         
-        # Broader star ranges that are more likely to have results
+        # Much smaller star buckets for better partitioning
         star_buckets = [
-            "0..5", "6..20", "21..100", "101..500", "501..2000", ">2000"
+            "0", "1", "2..3", "4..5", "6..8", "9..12", "13..18", "19..25",
+            "26..35", "36..50", "51..75", "76..100", "101..150", "151..250",
+            "251..400", "401..650", "651..1000", "1001..1500", "1501..2500", ">2500"
         ]
         
-        # Simple alphabet partitioning (fewer buckets)
-        alphabet_ranges = ["a..e", "f..j", "k..o", "p..t", "u..z", "0..9"]
+        # Smaller date ranges (quarterly partitions over recent years)
+        date_ranges = [
+            "2024-10-01..2025-12-31",  # Recent
+            "2024-07-01..2024-09-30",  # Q3 2024
+            "2024-04-01..2024-06-30",  # Q2 2024
+            "2024-01-01..2024-03-31",  # Q1 2024
+            "2023-10-01..2023-12-31",  # Q4 2023
+            "2023-07-01..2023-09-30",  # Q3 2023
+            "2023-04-01..2023-06-30",  # Q2 2023
+            "2023-01-01..2023-03-31",  # Q1 2023
+            "2022-07-01..2022-12-31",  # H2 2022
+            "2022-01-01..2022-06-30",  # H1 2022
+            "2021-01-01..2021-12-31",  # 2021
+            "2020-01-01..2020-12-31",  # 2020
+            "2019-01-01..2019-12-31",  # 2019
+            "..2018-12-31"             # Before 2019
+        ]
         
-        # Use simpler partitioning strategy
+        # Repository name partitioning (more granular)
+        name_ranges = [
+            "a..b", "c..d", "e..f", "g..h", "i..j", "k..l", "m..n", "o..p", 
+            "q..r", "s..t", "u..v", "w..x", "y..z", "0..4", "5..9", "-"
+        ]
+        
+        # Calculate dimensions
         total_languages = len(languages)
         total_stars = len(star_buckets)
-        total_alpha = len(alphabet_ranges)
+        total_dates = len(date_ranges)
+        total_names = len(name_ranges)
         
-        # Calculate indices for this matrix job
+        # Multi-dimensional partitioning
         lang_index = matrix_index % total_languages
         star_index = (matrix_index // total_languages) % total_stars
-        alpha_index = (matrix_index // (total_languages * total_stars)) % total_alpha
+        date_index = (matrix_index // (total_languages * total_stars)) % total_dates
+        name_index = (matrix_index // (total_languages * total_stars * total_dates)) % total_names
         
         selected_lang = languages[lang_index]
         selected_stars = star_buckets[star_index]
-        selected_alpha = alphabet_ranges[alpha_index]
+        selected_date = date_ranges[date_index]
+        selected_name = name_ranges[name_index]
         
-        # Build primary query with language and stars (most important filters)
+        # Build highly specific queries - all repositories are public
+        base_filters = ["is:public"]
+        
+        # Language filter
         if selected_lang == "none":
             # Query for repositories without a detected language
-            base_query = "is:public language:\"\" OR is:public NOT language:javascript NOT language:python NOT language:java"
+            base_filters.append("NOT language:javascript NOT language:python NOT language:java NOT language:typescript NOT language:go")
         else:
-            base_query = f"is:public language:{selected_lang}"
+            base_filters.append(f"language:{selected_lang}")
         
-        # Add star constraint
-        if selected_stars.startswith(">"):
-            stars_filter = f"stars:{selected_stars}"
+        # Star filter (more granular)
+        if selected_stars == "0":
+            base_filters.append("stars:0")
+        elif selected_stars == "1":
+            base_filters.append("stars:1")
+        elif selected_stars.startswith(">"):
+            base_filters.append(f"stars:{selected_stars}")
         else:
-            stars_filter = f"stars:{selected_stars}"
+            base_filters.append(f"stars:{selected_stars}")
         
-        primary_query = f"{base_query} {stars_filter} sort:updated"
+        # Date filter for created date
+        if selected_date.startswith(".."):
+            base_filters.append(f"created:{selected_date}")
+        else:
+            base_filters.append(f"created:{selected_date}")
+        
+        # Repository name filter (first character)
+        if selected_name == "-":
+            # Repositories starting with special characters
+            base_filters.append("NOT name:a* NOT name:b* NOT name:c* NOT name:d* NOT name:e* NOT name:f* NOT name:g* NOT name:h* NOT name:i* NOT name:j* NOT name:k* NOT name:l* NOT name:m* NOT name:n* NOT name:o* NOT name:p* NOT name:q* NOT name:r* NOT name:s* NOT name:t* NOT name:u* NOT name:v* NOT name:w* NOT name:x* NOT name:y* NOT name:z* NOT name:0* NOT name:1* NOT name:2* NOT name:3* NOT name:4* NOT name:5* NOT name:6* NOT name:7* NOT name:8* NOT name:9*")
+        elif ".." in selected_name:
+            start, end = selected_name.split("..")
+            base_filters.append(f"name:{start}*..{end}*")
+        else:
+            base_filters.append(f"name:{selected_name}*")
+        
+        # Primary query with all filters
+        primary_query = " ".join(base_filters) + " sort:updated"
         queries.append(primary_query)
         
-        # Add a fallback query with broader scope but different sorting
-        fallback_query = f"{base_query} sort:stars"
+        # Fallback query with relaxed name filter but keeping other constraints
+        fallback_filters = base_filters[:-1]  # Remove name filter
+        fallback_query = " ".join(fallback_filters) + " sort:stars"
         queries.append(fallback_query)
         
-        # Add a third query focusing on recent activity if we have room
-        if selected_lang != "none":
-            recent_query = f"is:public language:{selected_lang} pushed:>2023-01-01 sort:updated"
-            queries.append(recent_query)
+        # Third query with relaxed date filter for broader coverage
+        if len(base_filters) > 3:
+            broader_filters = base_filters[:-2]  # Remove date and name filters
+            broader_query = " ".join(broader_filters) + " sort:updated"
+            queries.append(broader_query)
         
-        print(f"🎯 Matrix job {matrix_index}: Lang={selected_lang}, Stars={selected_stars}")
-        print(f"📊 Generated {len(queries)} queries with broader search criteria")
+        print(f"🎯 Matrix job {matrix_index}: Lang={selected_lang}, Stars={selected_stars}, Date={selected_date}, Name={selected_name}")
+        print(f"📊 Generated {len(queries)} fine-grained queries for public repos only")
         
         return queries
 
