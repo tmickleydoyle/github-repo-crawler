@@ -70,7 +70,7 @@ async def store_repositories(crawl_result: CrawlResult, matrix_index: int):
             database=os.getenv("POSTGRES_DB", "github_crawler"),
         )
 
-        # Ensure tables exist with proper schema
+        # Ensure tables exist with proper schema (matching migrations)
         await conn.execute(
             """
             CREATE TABLE IF NOT EXISTS repo (
@@ -80,12 +80,7 @@ async def store_repositories(crawl_result: CrawlResult, matrix_index: int):
                 url TEXT NOT NULL,
                 created_at TIMESTAMP,
                 alphabet_partition VARCHAR(100),
-                name_with_owner TEXT,
-                primary_language TEXT,
-                fork_count INTEGER DEFAULT 0,
-                license_name TEXT,
-                pushed_at TIMESTAMP,
-                updated_at TIMESTAMP
+                name_with_owner TEXT
             )
         """
         )
@@ -112,9 +107,6 @@ async def store_repositories(crawl_result: CrawlResult, matrix_index: int):
             "ON repo (alphabet_partition)"
         )
         await conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_repo_language " "ON repo (primary_language)"
-        )
-        await conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_repo_stats_date "
             "ON repo_stats (fetched_date)"
         )
@@ -130,24 +122,16 @@ async def store_repositories(crawl_result: CrawlResult, matrix_index: int):
                 try:
                     # Parse datetime fields safely
                     created_at = parse_github_datetime(repo.created_at)
-                    pushed_at = parse_github_datetime(repo.pushed_at)
-                    updated_at = parse_github_datetime(repo.updated_at)
 
                     await conn.execute(
                         """
                         INSERT INTO repo
                         (id, name, owner, url, created_at, name_with_owner,
-                         alphabet_partition, primary_language, fork_count,
-                         license_name, pushed_at, updated_at)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                         alphabet_partition)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7)
                         ON CONFLICT (id) DO UPDATE SET
                             name_with_owner = EXCLUDED.name_with_owner,
-                            alphabet_partition = EXCLUDED.alphabet_partition,
-                            primary_language = EXCLUDED.primary_language,
-                            fork_count = EXCLUDED.fork_count,
-                            license_name = EXCLUDED.license_name,
-                            pushed_at = EXCLUDED.pushed_at,
-                            updated_at = EXCLUDED.updated_at
+                            alphabet_partition = EXCLUDED.alphabet_partition
                     """,
                         repo.id,
                         repo.name,
@@ -156,11 +140,6 @@ async def store_repositories(crawl_result: CrawlResult, matrix_index: int):
                         created_at,
                         repo.name_with_owner,
                         f"matrix_{matrix_index}",
-                        repo.primary_language,
-                        repo.fork_count,
-                        repo.license_name,
-                        pushed_at,
-                        updated_at,
                     )
 
                     await conn.execute(

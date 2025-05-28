@@ -249,6 +249,6 @@ class TestPerformance:
             # Verify all repositories were processed
             # execute should be called for each repo (insert into repo + repo_stats)
             # + table creation
-            # 2 inserts per repo + 7 for table/index creation
-            expected_calls = len(large_repo_set) * 2 + 7
+            # 2 inserts per repo + 6 for table/index creation (2 tables + 4 indexes)
+            expected_calls = len(large_repo_set) * 2 + 6
             assert mock_conn.execute.call_count >= expected_calls
