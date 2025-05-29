@@ -27,7 +27,7 @@ This project fulfills the requirements outlined in [ORIGINAL_README.md](./ORIGIN
 ```
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
 │   GitHub API    │◄───│  Python Crawler  │───►│   PostgreSQL    │
-│   (GraphQL v4)  │    │  (Matrix Jobs)    │    │   Database      │
+│   (GraphQL v4)  │    │  (Matrix Jobs)   │    │   Database      │
 └─────────────────┘    └──────────────────┘    └─────────────────┘
                               │
                               ▼
