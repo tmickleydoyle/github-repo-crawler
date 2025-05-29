@@ -1,352 +1,234 @@
 import argparse
 import asyncio
+import asyncpg
 import os
-import io
-import tarfile
-import hashlib
-import base64
-import tempfile
-import shutil
-import csv
-import json
-from datetime import date
-from asyncio import Queue
-from typing import Optional
-
-import aiohttp
+import logging
+from datetime import datetime, timezone
 
 from .client import GitHubClient
-from .repository import RepoRepository
-from .models import Repo, RepoStats, RepoArchive, RepoFileIndex
 from .config import settings
+from .domain import CrawlResult
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
+
+
+def parse_github_datetime(dt_input):
+    """
+    Parse GitHub datetime string or datetime object to timezone-naive datetime for PostgreSQL
+    """
+    if not dt_input:
+        return None
+    
+    # If it's already a datetime object, just ensure it's timezone-naive
+    if isinstance(dt_input, datetime):
+        if dt_input.tzinfo:
+            return dt_input.astimezone(timezone.utc).replace(tzinfo=None)
+        return dt_input
+    
+    # If it's a string, parse it
+    if isinstance(dt_input, str):
+        dt_aware = datetime.fromisoformat(dt_input.replace("Z", "+00:00"))
+        return dt_aware.astimezone(timezone.utc).replace(tzinfo=None)
+    
+    return None
+
 
 def parse_args():
-    p = argparse.ArgumentParser(description="Crawl GitHub repos + bundle code")
-    p.add_argument("--repos",  type=int, default=settings.max_repos,
-                   help="Number of repos to crawl")
-    p.add_argument("--outdir", type=str, default="data/repos",
-                   help="Directory to write tar.gz archives")
-    p.add_argument("--stars-only", action="store_true",
-                   help="Only collect star counts, skip file archiving (faster)")
-    p.add_argument("--export-csv", type=str,
-                   help="Export star data to CSV file")
-    p.add_argument("--export-json", type=str,
-                   help="Export star data to JSON file")
-    p.add_argument("--production", action="store_true",
-                   help="Run in production mode with 100k repositories")
-    p.add_argument("--matrix-total", type=int, default=1,
-                   help="Total number of matrix jobs (e.g., 40 for GitHub Actions)")
-    p.add_argument("--matrix-index", type=int, default=0,
-                   help="Current matrix job index (0-based, e.g., 0-39)")
-    p.add_argument("--partition-size", type=int, default=2500,
-                   help="Number of repositories per partition (100k/40 = 2500)")
-    p.add_argument("--alphabet-filter", type=str,
-                   help="Filter repositories by owner name starting with specific characters (e.g., 'a-c' or 'abc')")
+    p = argparse.ArgumentParser(description="Crawl GitHub repos for star counts")
+    p.add_argument(
+        "--repos",
+        type=int,
+        default=settings.max_repos,
+        help="Number of repos to crawl",
+    )
+    p.add_argument(
+        "--matrix-total",
+        type=int,
+        default=1,
+        help="Total number of matrix jobs",
+    )
+    p.add_argument(
+        "--matrix-index",
+        type=int,
+        default=0,
+        help="Current matrix job index (0-based)",
+    )
     return p.parse_args()
 
-def bundle_and_index(repo_id: int, fetched_date: date, files: list[dict], outdir: str):
-    os.makedirs(outdir, exist_ok=True)
-    name = f"{repo_id}-{fetched_date.isoformat()}.tar.gz"
-    path = os.path.join(outdir, name)
 
-    indexes = []
-    successful_files = 0
-    error_files = 0
-    
-    with tarfile.open(path, "w:gz") as tf:
-        for f in files:
-            try:
-                content = f["content"]
-                
-                if content == "[BINARY_FILE]":
-                    print(f"Skipping binary file: {f['path']}")
-                    continue
-                elif content.startswith("[BINARY_BASE64]"):
-                    base64_content = content[15:]
-                    data = base64.b64decode(base64_content)
-                elif content.startswith("[ERROR_DECODING]") or f.get("error", False):
-                    data = content.encode("utf-8")
-                    error_files += 1
-                else:
-                    data = content.encode("utf-8")
-                
-                sha = hashlib.sha256(data).hexdigest()
-                indexes.append(RepoFileIndex(
-                    repo_id=repo_id,
-                    fetched_date=fetched_date,
-                    path=f["path"],
-                    content_sha=sha
-                ))
-                
-                info = tarfile.TarInfo(name=f["path"])
-                info.size = len(data)
-                tf.addfile(info, fileobj=io.BytesIO(data))
-                
-                if not f.get("error", False):
-                    successful_files += 1
-                    
-            except Exception as e:
-                print(f"Error processing file {f.get('path', 'unknown')}: {e}")
-                error_files += 1
+async def store_repositories(crawl_result: CrawlResult, matrix_index: int):
+    """
+    Store repositories using domain models with enhanced error handling.
 
-    print(f"Archive created: {path} ({successful_files} files, {error_files} errors)")
-    return path, indexes
+    This function implements proper database operations with:
+    - Domain model usage instead of raw dictionaries
+    - Comprehensive error handling
+    - Transaction safety
+    - Proper connection management
+    """
+    conn = None
+    try:
+        conn = await asyncpg.connect(
+            host=os.getenv("POSTGRES_HOST", "localhost"),
+            port=int(os.getenv("POSTGRES_PORT", 5432)),
+            user=os.getenv("POSTGRES_USER", "postgres"),
+            password=os.getenv("POSTGRES_PASSWORD", "postgres"),
+            database=os.getenv("POSTGRES_DB", "crawler"),
+        )
 
-async def export_stars_csv(repo_repo: RepoRepository, filename: str):
-    """Export repository star data to CSV format"""
-    print(f"Exporting star data to CSV: {filename}")
-    
-    async with repo_repo.pool.acquire() as conn:
-        rows = await conn.fetch("""
-            SELECT r.owner, r.name, rs.stars, rs.fetched_date 
-            FROM repo r 
-            JOIN repo_stats rs ON r.id = rs.repo_id 
-            ORDER BY rs.stars DESC
-        """)
-    
-    with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
-        writer = csv.writer(csvfile)
-        writer.writerow(['owner', 'name', 'stars', 'fetched_date'])
-        for row in rows:
-            writer.writerow([row['owner'], row['name'], row['stars'], row['fetched_date']])
-    
-    print(f"Exported {len(rows)} repositories to {filename}")
+        # Ensure tables exist with proper schema (matching migrations)
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS repo (
+                id BIGINT PRIMARY KEY,
+                name TEXT NOT NULL,
+                owner TEXT NOT NULL,
+                url TEXT NOT NULL,
+                created_at TIMESTAMP,
+                alphabet_partition VARCHAR(100),
+                name_with_owner TEXT
+            )
+        """
+        )
 
-async def export_stars_json(repo_repo: RepoRepository, filename: str):
-    """Export repository star data to JSON format"""
-    print(f"Exporting star data to JSON: {filename}")
-    
-    async with repo_repo.pool.acquire() as conn:
-        rows = await conn.fetch("""
-            SELECT r.owner, r.name, rs.stars, rs.fetched_date 
-            FROM repo r 
-            JOIN repo_stats rs ON r.id = rs.repo_id 
-            ORDER BY rs.stars DESC
-        """)
-    
-    data = []
-    for row in rows:
-        data.append({
-            'owner': row['owner'],
-            'name': row['name'], 
-            'stars': row['stars'],
-            'fetched_date': row['fetched_date'].isoformat() if row['fetched_date'] else None
-        })
-    
-    with open(filename, 'w', encoding='utf-8') as jsonfile:
-        json.dump(data, jsonfile, indent=2, ensure_ascii=False)
-    
-    print(f"Exported {len(rows)} repositories to {filename}")
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS repo_stats (
+                repo_id BIGINT NOT NULL REFERENCES repo(id) ON DELETE CASCADE,
+                fetched_date DATE NOT NULL,
+                stars INT NOT NULL,
+                PRIMARY KEY(repo_id, fetched_date)
+            )
+        """
+        )
+
+        # Create indexes for performance
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_repo_stars ON repo (id)")
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_repo_name_with_owner "
+            "ON repo (name_with_owner)"
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_repo_alphabet_partition "
+            "ON repo (alphabet_partition)"
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_repo_stats_date "
+            "ON repo_stats (fetched_date)"
+        )
+
+        current_date = datetime.now(timezone.utc).date()
+
+        # Use transaction for data consistency
+        async with conn.transaction():
+            successful_inserts = 0
+            failed_inserts = 0
+
+            for repo in crawl_result.repositories:
+                try:
+                    # Parse datetime fields safely
+                    created_at = parse_github_datetime(repo.created_at)
+
+                    await conn.execute(
+                        """
+                        INSERT INTO repo
+                        (id, name, owner, url, created_at, name_with_owner,
+                         alphabet_partition)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7)
+                        ON CONFLICT (id) DO UPDATE SET
+                            name_with_owner = EXCLUDED.name_with_owner,
+                            alphabet_partition = EXCLUDED.alphabet_partition
+                    """,
+                        repo.id,
+                        repo.name,
+                        repo.owner,
+                        repo.url,
+                        created_at,
+                        repo.name_with_owner,
+                        f"matrix_{matrix_index}",
+                    )
+
+                    await conn.execute(
+                        """
+                        INSERT INTO repo_stats (repo_id, fetched_date, stars)
+                        VALUES ($1, $2, $3)
+                        ON CONFLICT (repo_id, fetched_date) DO UPDATE SET
+                            stars = EXCLUDED.stars
+                    """,
+                        repo.id,
+                        current_date,
+                        repo.stars,
+                    )
+
+                    successful_inserts += 1
+
+                except Exception as e:
+                    logger.error(f"⚠️ Error inserting repo {repo.id}: {e}")
+                    failed_inserts += 1
+
+        logger.info(f"✅ Successfully stored {successful_inserts} repositories")
+        if failed_inserts > 0:
+            logger.warning(f"⚠️ Failed to store {failed_inserts} repositories")
+
+        # Log statistics
+        logger.info("📊 Crawl Statistics:")
+        logger.info(f"   - Total repositories: {len(crawl_result.repositories)}")
+        logger.info(f"   - Unique owners: {crawl_result.unique_owners}")
+        logger.info(f"   - Total stars: {crawl_result.total_stars:,}")
+        logger.info(f"   - Average stars: {crawl_result.average_stars:.1f}")
+        logger.info(f"   - Matrix job: {matrix_index}")
+
+    except Exception as e:
+        logger.error(f"❌ Database operation failed: {e}")
+        raise
+    finally:
+        if conn:
+            await conn.close()
+
 
 async def run():
+    """
+    Main entry point using clean architecture principles.
+
+    This function demonstrates proper:
+    - Resource management with async context managers
+    - Error handling with custom exceptions
+    - Domain model usage
+    - Separation of concerns
+    """
     args = parse_args()
-    
-    if args.matrix_total > 1:
-        partition_start = args.matrix_index * args.partition_size
-        partition_end = min((args.matrix_index + 1) * args.partition_size, 100000)
-        settings.max_repos = partition_end - partition_start
-        
-        print(f"🔧 Matrix Job {args.matrix_index + 1}/{args.matrix_total}")
-        print(f"📊 Processing repositories {partition_start + 1}-{partition_end} ({settings.max_repos} repos)")
-        print(f"🎯 Partition size: {args.partition_size} repos per runner")
-    elif args.production:
-        settings.max_repos = 100000
-        print("🚀 Production mode: Configured for 100,000 repositories")
-        print("⚠️  This will take approximately 2.75 hours with standard rate limits")
-    else:
-        settings.max_repos = args.repos
 
-    if args.alphabet_filter:
-        print(f"🔤 Alphabetical filtering enabled: {args.alphabet_filter}")
+    logger.info("🚀 Starting GitHub crawler")
+    logger.info(f"📊 Target repositories: {args.repos}")
+    logger.info(f"🔢 Matrix job: {args.matrix_index + 1}/{args.matrix_total}")
 
-    client = GitHubClient()
-    repo_repo = RepoRepository()
-    await repo_repo.init()
+    try:
+        # Use async context manager for proper resource management
+        async with GitHubClient() as client:
+            # Test connection first
+            if not await client.test_connection():
+                logger.error("❌ GitHub API connection test failed")
+                return
 
-    if args.stars_only:
-        raw = await client.crawl(alphabet_filter=args.alphabet_filter)
-        today = date.today()
-
-        repos = [
-            Repo(id=r["id"], name=r["name"], owner=r["owner"],
-                 url=r["url"], created_at=r["created_at"], alphabet_partition=args.alphabet_filter)
-            for r in raw
-        ]
-        stats = [
-            RepoStats(repoId=r["id"], fetched_date=today, stars=r["stars"])
-            for r in raw
-        ]
-
-        await repo_repo.upsert_repos(repos)
-        await repo_repo.insert_stats(stats)
-        
-        print(f"✅ Stars-only mode: Successfully collected {len(repos)} repositories with star counts")
-        if args.alphabet_filter:
-            print(f"🔤 Filtered by alphabet: {args.alphabet_filter}")
-        print(f"Skipping file archiving for optimal performance with large datasets")
-    else:
-        await run_pipelined_archiving(client, repo_repo, args)
-
-    if args.export_csv:
-        await export_stars_csv(repo_repo, args.export_csv)
-    
-    if args.export_json:
-        await export_stars_json(repo_repo, args.export_json)
-
-    await repo_repo.close()
-
-async def run_pipelined_archiving(client: GitHubClient, repo_repo: RepoRepository, args):
-    """Run GraphQL fetching and git cloning in parallel using a pipeline approach"""
-    today = date.today()
-    
-    repo_queue = Queue(maxsize=500)
-    completed_repos = []
-    
-    partition_offset = 0
-    if args.matrix_total > 1:
-        partition_offset = args.matrix_index * args.partition_size
-        print(f"🎯 Matrix partition: Starting from repository #{partition_offset + 1}")
-    
-    print(f"🚀 Starting pipelined processing for {settings.max_repos} repositories")
-    print(f"📊 GraphQL batches will feed git clone workers in parallel")
-    
-    with tempfile.TemporaryDirectory() as temp_dir:
-        print(f"Using temporary directory: {temp_dir}")
-        
-        producer_task = asyncio.create_task(
-            graphql_producer(client, repo_queue, repo_repo, today, partition_offset, args.alphabet_filter)
-        )
-        
-        max_concurrent_clones = 250
-        consumer_tasks = []
-        
-        for i in range(max_concurrent_clones):
-            task = asyncio.create_task(
-                git_clone_consumer(
-                    repo_queue, 
-                    client, 
-                    repo_repo, 
-                    temp_dir, 
-                    today, 
-                    args.outdir,
-                    completed_repos,
-                    worker_id=i
-                )
+            # Perform crawl using domain models
+            crawl_result = await client.crawl(
+                matrix_total=args.matrix_total, matrix_index=args.matrix_index
             )
-            consumer_tasks.append(task)
-        
-        await producer_task
-        
-        for _ in range(max_concurrent_clones):
-            await repo_queue.put(None)
-        
-        await asyncio.gather(*consumer_tasks)
-        
-        print(f"✅ Pipeline completed: {len(completed_repos)} repositories processed")
 
-async def graphql_producer(client: GitHubClient, repo_queue: Queue, repo_repo: RepoRepository, today: date, partition_offset: int = 0, alphabet_filter: Optional[str] = None):
-    """Fetch repositories via GraphQL and feed them to the processing queue"""
-    repos = []
-    after = None
-    batch_count = 0
-    
-    async with aiohttp.ClientSession() as session:
-        if partition_offset > 0:
-            after = await client.skip_to_partition(session, partition_offset, alphabet_filter)
-        while len(repos) < settings.max_repos:
-            try:
-                batch_count += 1
-                print(f"📡 GraphQL Batch {batch_count}: Fetching repositories...")
-                
-                search = await client.fetch_repos(session, after, alphabet_filter)
-                batch_repos = []
-                
-                for node in search["nodes"]:
-                    repo_data = {
-                        "id": node["databaseId"],
-                        "name": node["name"],
-                        "owner": node["owner"]["login"],
-                        "url": node["url"],
-                        "created_at": node["createdAt"],
-                        "stars": node["stargazerCount"]
-                    }
-                    batch_repos.append(repo_data)
-                    repos.append(repo_data)
-                
-                repo_models = [
-                    Repo(id=r["id"], name=r["name"], owner=r["owner"],
-                         url=r["url"], created_at=r["created_at"], alphabet_partition=alphabet_filter)
-                    for r in batch_repos
-                ]
-                stats_models = [
-                    RepoStats(repoId=r["id"], fetched_date=today, stars=r["stars"])
-                    for r in batch_repos
-                ]
-                
-                await repo_repo.upsert_repos(repo_models)
-                await repo_repo.insert_stats(stats_models)
-                
-                for repo_data in batch_repos:
-                    await repo_queue.put(repo_data)
-                
-                print(f"📊 Added {len(batch_repos)} repos to processing queue (total: {len(repos)})")
-                
-                if not search["pageInfo"]["hasNextPage"]:
-                    print("📡 GraphQL: No more pages available")
-                    break
-                    
-                after = search["pageInfo"]["endCursor"]
-                
-                await asyncio.sleep(0.5)
-                
-            except Exception as e:
-                print(f"❌ GraphQL batch {batch_count} error: {e}")
-                if repos:
-                    print(f"Continuing with {len(repos)} repositories collected so far")
-                    break
-                else:
-                    raise
+            # Store results using improved database operations
+            await store_repositories(crawl_result, args.matrix_index)
 
-async def git_clone_consumer(repo_queue: Queue, client: GitHubClient, repo_repo: RepoRepository, 
-                           temp_dir: str, today: date, outdir: str, completed_repos: list, worker_id: int):
-    """Consumer that processes repositories from the queue"""
-    processed_count = 0
-    
-    while True:
-        try:
-            repo_data = await repo_queue.get()
-            
-            if repo_data is None:
-                print(f"🔧 Worker {worker_id}: Shutting down after processing {processed_count} repositories")
-                break
-            
-            print(f"🔧 Worker {worker_id}: Processing {repo_data['owner']}/{repo_data['name']}")
-            
-            try:
-                files = await client.crawl_files_for_repo_with_git(repo_data, temp_dir)
-                archive_path, indexes = bundle_and_index(repo_data["id"], today, files, outdir)
-                rel = os.path.relpath(archive_path)
-                
-                await repo_repo.insert_archive(RepoArchive(
-                    repo_id=repo_data["id"],
-                    fetched_date=today,
-                    archive_path=rel
-                ))
-                await repo_repo.upsert_file_index(indexes)
-                
-                completed_repos.append(repo_data)
-                processed_count += 1
-                
-                print(f"✅ Worker {worker_id}: Completed {repo_data['owner']}/{repo_data['name']} ({processed_count} total)")
-                
-            except Exception as e:
-                print(f"❌ Worker {worker_id}: Failed to process {repo_data['owner']}/{repo_data['name']}: {e}")
-            
-            repo_queue.task_done()
-            
-        except Exception as e:
-            print(f"❌ Worker {worker_id}: Queue processing error: {e}")
-            break
+            logger.info("🎉 Crawl completed successfully!")
+
+    except Exception as e:
+        logger.error(f"❌ Crawl failed: {e}")
+        raise
+
 
 if __name__ == "__main__":
     asyncio.run(run())
