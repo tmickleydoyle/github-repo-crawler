@@ -1,85 +1,25 @@
 import aiohttp
 import asyncio
-import logging
-from typing import Optional, List, Dict, Any
-from tenacity import (
-    retry,
-    stop_after_attempt,
-    wait_exponential,
-    retry_if_exception_type,
-    before_sleep_log,
-)
-
+import time
+from typing import Optional, List
 from .config import settings
-from .domain import (
-    Repository,
-    CrawlResult,
-    SearchQuery,
-    transform_github_response,
-    RateLimitError,
-    AuthenticationError,
-    SearchExhaustedError,
-    ApiError,
-)
-from .search_strategy import SimpleSearchStrategy
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
 
 class GitHubClient:
-    """
-    GitHub API client with comprehensive retry mechanisms and anti-corruption
-    layer.
-
-    This client implements clean architecture principles by:
-    - Using domain models instead of raw API responses
-    - Implementing proper retry mechanisms with tenacity
-    - Providing connection pooling and resource management
-    - Isolating external API concerns from business logic
-    """
-
     def __init__(self, token: str = settings.github_token):
-        if not token or token == "dummy_token_for_validation":
+        if not token or token == 'dummy_token_for_validation':
             raise ValueError("GitHub token is required and must be valid")
-
+            
         self.graphql_url = "https://api.github.com/graphql"
         self.headers = {
             "Authorization": f"Bearer {token}",
             "Accept": "application/vnd.github.v4+json",
-            "User-Agent": "GitHub-Crawler/1.0",
+            "User-Agent": "GitHub-Crawler/1.0"
         }
-        self.search_strategy = SimpleSearchStrategy()
-        self._connector = None
-        self._session = None
-        logger.info(f"✅ GitHub client initialized with token length: {len(token)}")
-
-    async def __aenter__(self):
-        """Async context manager entry."""
-        self._connector = aiohttp.TCPConnector(
-            limit=100,  # Total connection pool size
-            limit_per_host=20,  # Connections per host
-            keepalive_timeout=30,
-            enable_cleanup_closed=True,
-        )
-        self._session = aiohttp.ClientSession(
-            connector=self._connector,
-            headers=self.headers,
-            timeout=aiohttp.ClientTimeout(total=30),
-        )
-        return self
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Async context manager exit."""
-        if self._session:
-            await self._session.close()
-        if self._connector:
-            await self._connector.close()
+        print(f"✅ GitHub client initialized with token length: {len(token)}")
 
     async def test_connection(self) -> bool:
-        """Test GitHub API connection and authentication."""
-        test_query = """
+        """Test GitHub API connection and authentication"""
+        test_query = '''
         query {
           viewer {
             login
@@ -88,120 +28,65 @@ class GitHubClient:
             remaining
             resetAt
           }
-        }"""
-
+        }'''
+        
         try:
-            response = await self._make_graphql_request({"query": test_query})
-
-            viewer_login = response["data"]["viewer"]["login"]
-            rate_limit = response["data"]["rateLimit"]
-            logger.info("✅ GitHub API connection successful")
-            logger.info(f"📋 Authenticated as: {viewer_login}")
-            logger.info(f"🚦 Rate limit remaining: {rate_limit['remaining']}")
-            return True
+            async with aiohttp.ClientSession() as session:
+                response = await self._post(session, self.graphql_url, {"query": test_query})
+                if "errors" in response:
+                    print(f"❌ GitHub API test failed: {response['errors']}")
+                    return False
+                    
+                viewer_login = response["data"]["viewer"]["login"]
+                rate_limit = response["data"]["rateLimit"]
+                print(f"✅ GitHub API connection successful")
+                print(f"📋 Authenticated as: {viewer_login}")
+                print(f"🚦 Rate limit remaining: {rate_limit['remaining']}")
+                return True
         except Exception as e:
-            logger.error(f"❌ GitHub API connection test failed: {e}")
+            print(f"❌ GitHub API connection test failed: {e}")
             return False
 
-    @retry(
-        stop=stop_after_attempt(5),
-        wait=wait_exponential(multiplier=1, min=1, max=60),
-        retry=retry_if_exception_type((aiohttp.ClientError, RateLimitError)),
-        before_sleep=before_sleep_log(logger, logging.WARNING),
-        reraise=True,
-    )
-    async def _make_graphql_request(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Make a GraphQL request with comprehensive retry logic.
+    async def _post(self, session: aiohttp.ClientSession, url: str, json: dict):
+        """Make a POST request with rate limit and 5xx error handling (with retries)"""
+        max_retries = 5
+        backoff = 2
+        for attempt in range(max_retries):
+            try:
+                async with session.post(url, json=json, headers=self.headers) as resp:
+                    if resp.status == 403:
+                        response_text = await resp.text()
+                        if "rate limit" in response_text.lower():
+                            print("⏱️ Rate limit hit, waiting 60s...")
+                            await asyncio.sleep(60)
+                            raise aiohttp.ClientResponseError(resp.request_info, resp.history, status=resp.status)
+                    if resp.status in {502, 503, 504}:
+                        print(f"🔁 GitHub API {resp.status} error, retrying in {backoff ** attempt}s (attempt {attempt+1}/{max_retries})...")
+                        await asyncio.sleep(backoff ** attempt)
+                        continue
+                    await self._rate_limit_pause(resp)
+                    if resp.status != 200:
+                        resp.raise_for_status()
+                    return await resp.json()
+            except aiohttp.ClientError as e:
+                print(f"🔁 Network error: {e}, retrying in {backoff ** attempt}s (attempt {attempt+1}/{max_retries})...")
+                await asyncio.sleep(backoff ** attempt)
+        raise Exception(f"Failed to POST to GitHub API after {max_retries} attempts")
 
-        Uses tenacity for robust retry mechanisms with exponential backoff.
-        """
-        if not self._session:
-            raise RuntimeError("Client must be used as async context manager")
+    async def _rate_limit_pause(self, resp: aiohttp.ClientResponse):
+        """Pause if we're close to rate limit"""
+        remaining = int(resp.headers.get("X-RateLimit-Remaining", 1))
+        if remaining < 5:
+            await asyncio.sleep(1)
 
-        try:
-            async with self._session.post(self.graphql_url, json=payload) as resp:
-                # Handle authentication errors first
-                if resp.status == 401:
-                    raise AuthenticationError("GitHub API authentication failed")
-
-                # Handle rate limiting
-                if resp.status == 403:
-                    response_text = await resp.text()
-                    if "rate limit" in response_text.lower():
-                        logger.warning("⏱️ Rate limit hit, waiting...")
-                        await asyncio.sleep(60)
-                        raise RateLimitError("GitHub API rate limit exceeded")
-
-                # Handle server errors
-                if resp.status in {502, 503, 504}:
-                    raise aiohttp.ClientResponseError(
-                        resp.request_info,
-                        resp.history,
-                        status=resp.status,
-                        message=f"Server error: {resp.status}",
-                    )
-
-                # For successful responses, handle rate limiting headers
-                if resp.status == 200:
-                    # Rate limit preemptive pause
-                    remaining = int(resp.headers.get("X-RateLimit-Remaining", 1))
-                    if remaining < 10:
-                        await asyncio.sleep(0.5)
-
-                    response_data = await resp.json()
-
-                    # Handle GraphQL errors
-                    if "errors" in response_data:
-                        errors = response_data["errors"]
-                        error_messages = [str(error) for error in errors]
-
-                        # Check for specific error types
-                        for error in errors:
-                            error_str = str(error)
-                            if "FORBIDDEN" in error_str or "Unauthorized" in error_str:
-                                raise AuthenticationError(
-                                    f"Authentication failed: {error}"
-                                )
-                            elif "RATE_LIMITED" in error_str:
-                                logger.warning("⏱️ GraphQL rate limited, waiting...")
-                                await asyncio.sleep(60)
-                                raise RateLimitError(f"GraphQL rate limited: {error}")
-
-                        # If we have data despite errors, log and continue
-                        if "data" in response_data and response_data["data"]:
-                            logger.warning(
-                                f"⚠️ GraphQL errors (continuing): " f"{error_messages}"
-                            )
-                        else:
-                            raise ApiError(f"GraphQL query failed: {error_messages}")
-
-                    return response_data
-
-                # Handle any other non-200 status codes
-                resp.raise_for_status()
-                return {}  # Should never reach here due to raise_for_status
-        except aiohttp.ClientError as e:
-            logger.warning(f"🔁 Network error: {e}")
-            raise
-
-    async def search_repositories(
-        self, query: SearchQuery, after: Optional[str] = None
-    ) -> Dict[str, Any]:
-        """
-        Execute a GraphQL search query and return repositories using domain models.
-
-        This method implements the anti-corruption layer pattern by:
-        - Taking domain SearchQuery objects instead of raw strings
-        - Returning structured data with proper typing
-        - Handling errors with custom exception types
-        """
-        graphql_query = """
+    async def search_repositories(self, session: aiohttp.ClientSession, query: str, after: Optional[str] = None) -> List[dict]:
+        """Execute a GraphQL search query and return a list of repos with star counts"""
+        graphql_query = '''
         query ($searchQuery: String!, $after: String) {
           search(query: $searchQuery, type: REPOSITORY, first: 100, after: $after) {
-            pageInfo {
-              endCursor
-              hasNextPage
+            pageInfo { 
+              endCursor 
+              hasNextPage 
             }
             repositoryCount
             nodes {
@@ -211,189 +96,244 @@ class GitHubClient:
                 url
                 createdAt
                 stargazerCount
-                forkCount
-                primaryLanguage {
-                  name
+                owner { 
+                  login 
                 }
-                owner {
-                  login
-                }
-                licenseInfo {
-                  name
-                }
-                pushedAt
-                updatedAt
               }
             }
           }
-          rateLimit {
-            remaining
-            resetAt
-          }
-        }"""
-
-        variables = {"searchQuery": query.query_string, "after": after}
+        }'''
+        variables = {
+            "searchQuery": query,
+            "after": after
+        }
         payload = {"query": graphql_query, "variables": variables}
-
         try:
-            response = await self._make_graphql_request(payload)
-
+            response = await self._post(session, self.graphql_url, payload)
+            if "errors" in response:
+                print(f"⚠️ GraphQL errors: {response['errors']}")
+                # Check for specific error types
+                for error in response['errors']:
+                    if 'FORBIDDEN' in str(error) or 'Unauthorized' in str(error):
+                        raise Exception(f"GitHub API authentication failed: {error}")
+                    elif 'RATE_LIMITED' in str(error):
+                        print("⏱️ Rate limited by GitHub, waiting...")
+                        await asyncio.sleep(60)
+                        raise Exception(f"Rate limited: {error}")
+                        
+                if "data" not in response or not response["data"]:
+                    raise Exception(f"GraphQL query failed: {response['errors']}")
+            
             if "data" not in response:
-                raise ApiError(f"No data in GraphQL response: {response}")
-
-            search_data = response["data"]["search"]
-            rate_limit = response["data"]["rateLimit"]
-
-            # Convert raw API response to domain objects
-            repositories = []
-            for node in search_data["nodes"]:
-                repo = transform_github_response(node)
-                repositories.append(repo)
-
-            logger.info(f"🔍 Query returned {len(repositories)} repositories")
-            logger.info(f"🚦 Rate limit remaining: {rate_limit['remaining']}")
-
+                raise Exception(f"No data in GraphQL response: {response}")
+                
+            search = response["data"]["search"]
+            repos = []
+            for node in search["nodes"]:
+                repos.append({
+                    "id": node["databaseId"],
+                    "name": node["name"],
+                    "name_with_owner": f"{node['owner']['login']}/{node['name']}",
+                    "owner": node["owner"]["login"],
+                    "url": node["url"],
+                    "created_at": node["createdAt"],
+                    "stars": node["stargazerCount"]
+                })
             return {
-                "repositories": repositories,
-                "pageInfo": search_data["pageInfo"],
-                "repositoryCount": search_data["repositoryCount"],
-                "rateLimit": rate_limit,
+                "pageInfo": search["pageInfo"],
+                "repositoryCount": search["repositoryCount"],
+                "nodes": repos
             }
-
-        except (RateLimitError, AuthenticationError, SearchExhaustedError):
-            # Re-raise domain exceptions
-            raise
         except Exception as e:
-            logger.error(
-                f"❌ GraphQL query failed for query '{query.query_string}': {e}"
-            )
-            raise ApiError(f"Search request failed: {e}") from e
+            print(f"❌ GraphQL query failed for query '{query}': {e}")
+            print(f"❌ Query variables: {variables}")
+            raise
 
-    async def crawl(self, matrix_total: int = 1, matrix_index: int = 0) -> CrawlResult:
-        """
-        Main crawling method using clean architecture principles.
-
-        This method:
-        - Uses domain models instead of raw dictionaries
-        - Delegates search strategy to dedicated class
-        - Implements proper resource management
-        - Returns structured results with metadata
-        """
-        logger.info(f"🚀 Starting crawl: Matrix job {matrix_index + 1}/{matrix_total}")
-        logger.info(f"🎯 Target: {settings.max_repos} repositories")
-
-        repositories: List[Repository] = []
-        repository_ids: set[int] = set()
-        target_repos = settings.max_repos
-
-        # Use search strategy to generate optimized queries
-        search_queries = self.search_strategy.generate_queries(
-            matrix_index, matrix_total
-        )
-
-        for query_idx, search_query in enumerate(search_queries):
-            if len(repositories) >= target_repos:
-                break
-
-            logger.info(
-                f"🔍 Query {query_idx + 1}/{len(search_queries)}: "
-                f"{search_query.query_string}"
-            )
-
-            try:
-                await self._crawl_query(
-                    search_query, repositories, repository_ids, target_repos
-                )
-            except SearchExhaustedError:
-                logger.warning(
-                    f"⚠️ Search exhausted for query: {search_query.query_string}"
-                )
-                continue
-            except Exception as e:
-                logger.error(
-                    f"❌ Error processing query {search_query.query_string}: {e}"
-                )
-                continue
-
-        # Truncate to target and calculate stats
-        final_repositories = repositories[:target_repos]
-
-        # Create crawl result with all repositories and metadata
-        crawl_result = CrawlResult(
-            repositories=final_repositories,
-            total_found=len(repositories),  # Total before truncation
-            duration_seconds=0.0,  # This could be calculated if needed
-            errors=[],
-        )
-
-        if final_repositories:
-            logger.info(f"🎉 Crawl completed for matrix job {matrix_index}")
-            logger.info(f"📊 Collected: {len(final_repositories)} unique repositories")
-            logger.info(f"👥 Unique owners: {crawl_result.unique_owners}")
-            logger.info(f"⭐ Total stars: {crawl_result.total_stars:,}")
-            if crawl_result.total_stars > 0:
-                average_stars = crawl_result.total_stars / len(final_repositories)
-                logger.info(f"📈 Average stars: {average_stars:.1f}")
+    def get_search_queries(self, matrix_index: int = 0, matrix_total: int = 1) -> List[str]:
+        """Generate search queries that balance specificity with results availability"""
+        if matrix_total == 1:
+            # Single job: use broad queries
+            return [
+                "is:public stars:>=1 sort:updated",
+                "is:public stars:0 sort:updated", 
+                "is:public sort:updated"
+            ]
+        
+        queries = []
+        
+        # Simplified strategy focusing on language and star distribution
+        # Avoid overly restrictive combinations that yield no results
+        
+        # Popular languages for partitioning
+        languages = [
+            "javascript", "python", "java", "typescript", "go", "rust", "php", "c",
+            "c++", "c#", "shell", "ruby", "kotlin", "swift", "scala", "dart",
+            "r", "html", "css", "dockerfile", "yaml", "json", "none"
+        ]
+        
+        # Broader star ranges that are more likely to have results
+        star_buckets = [
+            "0..5", "6..20", "21..100", "101..500", "501..2000", ">2000"
+        ]
+        
+        # Simple alphabet partitioning (fewer buckets)
+        alphabet_ranges = ["a..e", "f..j", "k..o", "p..t", "u..z", "0..9"]
+        
+        # Use simpler partitioning strategy
+        total_languages = len(languages)
+        total_stars = len(star_buckets)
+        total_alpha = len(alphabet_ranges)
+        
+        # Calculate indices for this matrix job
+        lang_index = matrix_index % total_languages
+        star_index = (matrix_index // total_languages) % total_stars
+        alpha_index = (matrix_index // (total_languages * total_stars)) % total_alpha
+        
+        selected_lang = languages[lang_index]
+        selected_stars = star_buckets[star_index]
+        selected_alpha = alphabet_ranges[alpha_index]
+        
+        # Build primary query with language and stars (most important filters)
+        if selected_lang == "none":
+            # Query for repositories without a detected language
+            base_query = "is:public language:\"\" OR is:public NOT language:javascript NOT language:python NOT language:java"
         else:
-            logger.warning("⚠️ No repositories collected")
+            base_query = f"is:public language:{selected_lang}"
+        
+        # Add star constraint
+        if selected_stars.startswith(">"):
+            stars_filter = f"stars:{selected_stars}"
+        else:
+            stars_filter = f"stars:{selected_stars}"
+        
+        primary_query = f"{base_query} {stars_filter} sort:updated"
+        queries.append(primary_query)
+        
+        # Add a fallback query with broader scope but different sorting
+        fallback_query = f"{base_query} sort:stars"
+        queries.append(fallback_query)
+        
+        # Add a third query focusing on recent activity if we have room
+        if selected_lang != "none":
+            recent_query = f"is:public language:{selected_lang} pushed:>2023-01-01 sort:updated"
+            queries.append(recent_query)
+        
+        print(f"🎯 Matrix job {matrix_index}: Lang={selected_lang}, Stars={selected_stars}")
+        print(f"📊 Generated {len(queries)} queries with broader search criteria")
+        
+        return queries
 
-        if len(final_repositories) < target_repos:
-            logger.warning(
-                f"⚠️ Only collected {len(final_repositories)}/{target_repos} repos. "
-                f"Search space may be exhausted for this partition."
-            )
+    async def crawl(self, matrix_total: int = 1, matrix_index: int = 0) -> List[dict]:
+        """Main crawling method - optimized for maximum unique repository collection with parallel page fetching"""
+        print(f"🚀 Starting crawl: Matrix job {matrix_index + 1}/{matrix_total}")
+        print(f"🎯 Target: {settings.max_repos} repositories")
+        
+        repos = []
+        repo_ids = set()
+        target_repos = settings.max_repos
+        max_workers = 5  # Number of concurrent requests per query
+        semaphore = asyncio.Semaphore(max_workers)
+        progress_intervals = [0.1, 0.25, 0.5, 0.75, 0.9]
+        last_reported = 0
 
-        return crawl_result
+        async def fetch_pages(search_query):
+            queue = asyncio.Queue()
+            await queue.put(None)  # Start with no cursor
+            local_repos = []
+            local_ids = set()
+            stop_flag = False
 
-    async def _crawl_query(
-        self,
-        search_query: SearchQuery,
-        repositories: List[Repository],
-        repository_ids: set,
-        target_repos: int,
-    ):
-        """Process a single search query with pagination."""
-        after_cursor = None
-        pages_processed = 0
-        max_pages = 10  # Prevent infinite loops
-
-        while len(repositories) < target_repos and pages_processed < max_pages:
-            try:
-                result = await self.search_repositories(search_query, after_cursor)
-
-                # Process repositories from this page
-                batch_added = 0
-                for repo in result["repositories"]:
-                    if repo.id not in repository_ids:
-                        repositories.append(repo)
-                        repository_ids.add(repo.id)
-                        batch_added += 1
-
-                        if len(repositories) >= target_repos:
+            async def worker():
+                nonlocal stop_flag, last_reported, local_repos, local_ids
+                async with aiohttp.ClientSession() as session:
+                    while not stop_flag and len(repos) < target_repos:
+                        try:
+                            after = await queue.get()
+                            if stop_flag or len(repos) >= target_repos:
+                                queue.task_done()
+                                break
+                            async with semaphore:
+                                search_result = await self.search_repositories(session, search_query, after)
+                            batch_added = 0
+                            batch_duplicates = 0
+                            for node in search_result["nodes"]:
+                                repo_id = node["id"]
+                                if repo_id not in repo_ids and repo_id not in local_ids:
+                                    repo = {
+                                        "id": repo_id,
+                                        "name": node["name"],
+                                        "name_with_owner": node["name_with_owner"],
+                                        "owner": node["owner"],
+                                        "url": node["url"],
+                                        "created_at": node["created_at"],
+                                        "stars": node["stars"]
+                                    }
+                                    local_repos.append(repo)
+                                    local_ids.add(repo_id)
+                                    batch_added += 1
+                                else:
+                                    batch_duplicates += 1
+                            
+                            if batch_duplicates > 0:
+                                print(f"🔄 Found {batch_duplicates} duplicate repos in batch (skipped)")
+                            
+                            # Merge local results into global
+                            if batch_added > 0:
+                                repos.extend(local_repos[-batch_added:])  # Only add new repos
+                                repo_ids.update(local_ids)
+                                local_repos = local_repos[:-batch_added]  # Remove processed repos
+                                local_ids.clear()
+                                
+                            if len(repos) % 100 == 0 and len(repos) > 0:
+                                print(f"📊 Collected {len(repos)} unique repositories so far...")
+                                
+                            # Progress reporting
+                            current_progress = len(repos) / target_repos
+                            for threshold in progress_intervals:
+                                if current_progress >= threshold and last_reported < threshold:
+                                    print(f"📈 Progress milestone: {threshold*100:.0f}% complete ({len(repos)}/{target_repos} repos)")
+                                    last_reported = threshold
+                                    break
+                            # Enqueue next page
+                            if search_result["pageInfo"]["hasNextPage"] and len(repos) < target_repos:
+                                await queue.put(search_result["pageInfo"]["endCursor"])
+                            else:
+                                stop_flag = True
+                            queue.task_done()
+                        except Exception as e:
+                            print(f"❌ Error in worker: {e}")
+                            queue.task_done()
+                            stop_flag = True
                             break
+            
+            # Launch workers
+            workers = [asyncio.create_task(worker()) for _ in range(max_workers)]
+            await queue.join()
+            stop_flag = True
+            for w in workers:
+                w.cancel()
+            await asyncio.gather(*workers, return_exceptions=True)
 
-                logger.debug(
-                    f"📄 Page {pages_processed + 1}: "
-                    f"Added {batch_added} new repositories"
-                )
-
-                # Check if we should continue paginating
-                page_info = result["pageInfo"]
-                if not page_info["hasNextPage"]:
+        async with aiohttp.ClientSession() as session:
+            search_queries = self.get_search_queries(matrix_index, matrix_total)
+            for query_idx, search_query in enumerate(search_queries):
+                if len(repos) >= target_repos:
                     break
-
-                after_cursor = page_info["endCursor"]
-                pages_processed += 1
-
-                # Respect rate limits
-                if result["rateLimit"]["remaining"] < 100:
-                    logger.info("⏱️ Rate limit low, sleeping...")
-                    await asyncio.sleep(1)
-
-            except RateLimitError:
-                logger.warning("⏱️ Rate limit hit, sleeping 60 seconds...")
-                await asyncio.sleep(60)
-                continue
-            except Exception as e:
-                logger.error(f"❌ Error in query pagination: {e}")
-                break
+                print(f"🔍 Query {query_idx + 1}/{len(search_queries)}: {search_query}")
+                await fetch_pages(search_query)
+        final_repos = repos[:target_repos]
+        unique_owners = len(set(repo['owner'] for repo in final_repos))
+        total_stars = sum(repo['stars'] for repo in final_repos)
+        avg_stars = total_stars / len(final_repos) if final_repos else 0
+        
+        print(f"🎉 Crawl completed for matrix job {matrix_index}")
+        print(f"📊 Collected: {len(final_repos)} unique repositories")
+        print(f"👥 Unique owners: {unique_owners}")
+        print(f"⭐ Total stars: {total_stars:,}")
+        print(f"📈 Average stars: {avg_stars:.1f}")
+        
+        # Check for potential overlaps with other matrix jobs
+        if len(final_repos) < target_repos:
+            print(f"⚠️ Warning: Only collected {len(final_repos)}/{target_repos} repos. Search space may be exhausted for this partition.")
+        
+        return final_repos

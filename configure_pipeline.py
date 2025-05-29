@@ -24,7 +24,7 @@ def check_requirements():
         "migrations/001_initial_schema.sql",
         "migrations/002_add_alphabet_partition.sql",
         ".github/workflows/parallel-star-crawler.yml",
-        ".github/workflows/code-quality.yml"
+        ".github/workflows/test-star-crawler.yml"
     ]
     
     missing_files = []

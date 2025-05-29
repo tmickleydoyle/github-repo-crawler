@@ -10,12 +10,12 @@ on:
       matrix_size:
         description: "Number of parallel crawler jobs (1-200)"
         required: false
-        default: "200"
+        default: "100"
         type: string
       max_repos_per_job:
         description: "Max repositories per job"
         required: false
-        default: "4000"
+        default: "1000"
         type: string
 
 permissions:
@@ -25,9 +25,9 @@ permissions:
   packages: read
 
 env:
-  POSTGRES_DB: crawler
-  POSTGRES_USER: postgres
-  POSTGRES_PASSWORD: postgres
+  POSTGRES_DB: github_crawler
+  POSTGRES_USER: crawler_user
+  POSTGRES_PASSWORD: crawler_password
   POSTGRES_HOST: localhost
   POSTGRES_PORT: 5432
 
@@ -53,24 +53,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Code Quality Checks
-        run: |
-          echo "🔍 Running Code Quality Checks..."
-
-          # 1. Linting with flake8
-          echo "1️⃣ Running flake8 linting..."
-          python -m flake8 crawler/ tests/ --count --statistics
-
-          # 2. Type checking with mypy
-          echo "2️⃣ Running mypy type checking..."
-          python -m mypy crawler/ tests/ --ignore-missing-imports
-
-          # 3. Code formatting check
-          echo "3️⃣ Checking code formatting..."
-          python -m black --check crawler/ tests/ --line-length 88
-
-          echo "✅ All code quality checks passed!"
-
       - name: Validate crawler code
         run: |
           echo "🔍 Validating crawler code..."
@@ -85,7 +67,7 @@ jobs:
 
           # Test imports
           try:
-              from crawler import client, main, config, domain, search_strategy
+              from crawler import client, main, config, models
               print('✅ All crawler modules import successfully')
           except Exception as e:
               print(f'❌ Import error: {e}')
@@ -102,11 +84,6 @@ jobs:
 
           print('🎉 Validation passed!')
           "
-
-      - name: Run Tests
-        run: |
-          echo "🔍 Running test suite..."
-          python -m pytest tests/ -v --tb=short
 
   generate-matrix:
     runs-on: ubuntu-latest
@@ -152,8 +129,8 @@ jobs:
         image: postgres:15
         env:
           POSTGRES_DB: ${{ env.POSTGRES_DB }}
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: ${{ env.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ env.POSTGRES_PASSWORD }}
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -283,7 +260,6 @@ jobs:
           set -e  # Exit on any error
           echo "🏃 Starting Python crawler..."
           python -m crawler.main \
-            --repos ${MAX_REPOS} \
             --matrix-total ${{ github.event.inputs.matrix_size || '10' }} \
             --matrix-index ${{ matrix.job_index }} || {
             echo "❌ Crawler failed with exit code $?"
@@ -353,8 +329,8 @@ jobs:
         image: postgres:15
         env:
           POSTGRES_DB: ${{ env.POSTGRES_DB }}
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: ${{ env.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ env.POSTGRES_PASSWORD }}
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -491,6 +467,15 @@ jobs:
           echo "  - Duplicate repos skipped: ${SKIPPED_DUPLICATES}"
           echo "  - Deduplication rate: $(( (SKIPPED_DUPLICATES * 100) / TOTAL_REPO_ROWS ))% overlap between jobs"
 
+      - name: Create database dump
+        run: |
+          export PGPASSWORD="${{ env.POSTGRES_PASSWORD }}"
+          pg_dump -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} \
+                  -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} \
+                  --no-owner --no-privileges > github_repositories.sql
+
+          echo "📦 Database dump created: $(wc -l < github_repositories.sql) lines"
+
       - name: Create final export
         run: |
           export PGPASSWORD="${{ env.POSTGRES_PASSWORD }}"
@@ -513,8 +498,8 @@ jobs:
       - name: Copy to database_exports directory
         run: |
           mkdir -p database_exports
-          cp github_repositories_final.csv database_exports/
-          echo "✅ Copied export to database_exports directory"
+          cp github_repositories.sql github_repositories_final.csv database_exports/
+          echo "✅ Copied export files to database_exports directory"
 
       - name: Commit and push database exports
         run: |
@@ -530,6 +515,7 @@ jobs:
         with:
           name: final-results
           path: |
+            github_repositories.sql
             github_repositories_final.csv
             database_exports/
 
@@ -540,6 +526,7 @@ jobs:
           echo "📊 Results:"
           echo "- Matrix jobs: ${{ github.event.inputs.matrix_size || '10' }}"
           echo "- Target per job: ${{ github.event.inputs.max_repos_per_job || '1000' }}"
+          echo "- Database dump: github_repositories.sql"
           echo "- CSV export: github_repositories_final.csv"
           echo ""
           if [ -f github_repositories_final.csv ]; then
