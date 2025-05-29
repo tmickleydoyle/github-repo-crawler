@@ -17,14 +17,25 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def parse_github_datetime(dt_str):
+def parse_github_datetime(dt_input):
     """
-    Parse GitHub datetime string to timezone-naive datetime for PostgreSQL
+    Parse GitHub datetime string or datetime object to timezone-naive datetime for PostgreSQL
     """
-    if not dt_str:
+    if not dt_input:
         return None
-    dt_aware = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
-    return dt_aware.astimezone(timezone.utc).replace(tzinfo=None)
+    
+    # If it's already a datetime object, just ensure it's timezone-naive
+    if isinstance(dt_input, datetime):
+        if dt_input.tzinfo:
+            return dt_input.astimezone(timezone.utc).replace(tzinfo=None)
+        return dt_input
+    
+    # If it's a string, parse it
+    if isinstance(dt_input, str):
+        dt_aware = datetime.fromisoformat(dt_input.replace("Z", "+00:00"))
+        return dt_aware.astimezone(timezone.utc).replace(tzinfo=None)
+    
+    return None
 
 
 def parse_args():
