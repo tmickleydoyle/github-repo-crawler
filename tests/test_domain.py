@@ -58,7 +58,6 @@ class TestRepository:
             stars=100,
         )
 
-        # Should not be able to modify frozen dataclass
         with pytest.raises(AttributeError):
             repo.stars = 200
 
@@ -147,7 +146,7 @@ class TestAntiCorruptionLayer:
         assert repo.name == "awesome-repo"
         assert repo.owner == "cool-user"
         assert repo.stars == 150
-        assert repo.created_at is not None  # Should be parsed from createdAt
+        assert repo.created_at is not None
 
     def test_transform_github_response_minimal(self):
         """Test transforming a minimal GitHub API response."""

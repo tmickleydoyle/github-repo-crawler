@@ -27,10 +27,8 @@ class SearchStrategy:
         4. Simple, reliable queries
         """
         if matrix_total == 1:
-            # Single job mode - use basic queries
             return self._get_basic_queries()
 
-        # Multi-job mode - partition by primary dimensions
         return self._get_partitioned_queries(matrix_index, matrix_total)
 
     def _get_basic_queries(self) -> List[SearchQuery]:
@@ -63,7 +61,6 @@ class SearchStrategy:
     ) -> List[SearchQuery]:
         """Generate queries partitioned across matrix jobs with better distribution."""
 
-        # Primary languages for good coverage
         languages = [
             "javascript", "python", "java", "typescript", "go", "rust", "php", 
             "c++", "c#", "ruby", "swift", "kotlin", "scala", "dart", "r",
@@ -73,7 +70,6 @@ class SearchStrategy:
             "scss", "less", "vue", "svelte", "coffeescript", "livescript"
         ]
         
-        # Better distributed star ranges
         star_ranges = [
             "0..2", "3..5", "6..10", "11..15", "16..25", "26..40", "41..60", "61..90",
             "91..130", "131..180", "181..250", "251..350", "351..500", "501..700", 
@@ -81,18 +77,15 @@ class SearchStrategy:
             "4501..7000", "7001..10000", "10001..15000", "15001..25000", "25001..50000", ">50000"
         ]
         
-        # More recent time ranges for active repos
         time_ranges = [
             "2024-06-01..2025-12-31", "2024-01-01..2024-05-31", "2023-07-01..2023-12-31",
             "2023-01-01..2023-06-30", "2022-06-01..2022-12-31", "2022-01-01..2022-05-31",
             "2021-06-01..2021-12-31", "2021-01-01..2021-05-31", "2020-01-01..2020-12-31", "..2019-12-31"
         ]
         
-        # Mixed approach: combine different partitioning strategies
         partition_strategy = matrix_index % 4
         
         if partition_strategy == 0:
-            # Language + Star partitioning
             lang_idx = matrix_index % len(languages)
             star_idx = (matrix_index // len(languages)) % len(star_ranges)
             
@@ -107,7 +100,6 @@ class SearchStrategy:
             description = f"Lang+Stars: {language}, {stars} stars"
             
         elif partition_strategy == 1:
-            # Time + Star partitioning
             time_idx = matrix_index % len(time_ranges)
             star_idx = (matrix_index // len(time_ranges)) % len(star_ranges)
             
@@ -122,7 +114,6 @@ class SearchStrategy:
             description = f"Time+Stars: {time_range}, {stars} stars"
             
         elif partition_strategy == 2:
-            # Topic-based searches
             topics = [
                 "api", "cli", "framework", "library", "tool", "web", "mobile", "game",
                 "machine-learning", "data", "security", "blockchain", "iot", "ai",
@@ -143,7 +134,6 @@ class SearchStrategy:
             description = f"Topic+Stars: {topic}, {stars} stars"
             
         else:
-            # Special searches for diversity
             special_searches = [
                 ("is:public fork:false archived:false stars:1..20 sort:updated", "Active non-forks"),
                 ("is:public has:readme stars:1..50 sort:updated", "Documented repos"),
@@ -173,7 +163,6 @@ class SearchStrategy:
             )
         ]
         
-        # Add fallback queries
         for i, fallback in enumerate(fallbacks[:2]):
             queries.append(
                 SearchQuery(
@@ -204,10 +193,6 @@ class SimpleSearchStrategy(SearchStrategy):
                 SearchQuery("is:public stars:81..300 sort:updated", "Higher stars", 1000),
             ]
 
-        # ULTRA-MASSIVE partitioning optimized for 200+ matrix jobs
-        # We need much more granular partitions to hit our target
-        
-        # Extended language list (50+ languages for maximum coverage)
         languages = [
             "javascript", "python", "java", "typescript", "go", "rust", "php", "c++", "c#", "ruby",
             "swift", "kotlin", "scala", "dart", "r", "objective-c", "perl", "haskell", "lua", "clojure",
@@ -217,8 +202,6 @@ class SimpleSearchStrategy(SearchStrategy):
             "fortran", "pascal", "ada", "vhdl", "verilog", "matlab", "mathematica", "tex", "nix"
         ]
         
-        # EXTREMELY granular star ranges - key to working around API limits
-        # Using very small ranges to ensure we can get close to 1000 results per query
         star_ranges = [
             "0..0", "1..1", "2..2", "3..3", "4..4", "5..5", "6..6", "7..7", "8..8", "9..9",
             "10..10", "11..11", "12..12", "13..13", "14..14", "15..15", "16..16", "17..17", "18..18", "19..19",
@@ -230,7 +213,6 @@ class SimpleSearchStrategy(SearchStrategy):
             "10551..12410", "12411..14600", "14601..17160", "17161..20170", "20171..23700", "23701..27880", "27881..32790", "32791..38560", "38561..45350", ">45350"
         ]
         
-        # More granular time ranges (monthly granularity for recent years)
         time_ranges = [
             "2024-12-01..2025-12-31", "2024-11-01..2024-11-30", "2024-10-01..2024-10-31", "2024-09-01..2024-09-30",
             "2024-08-01..2024-08-31", "2024-07-01..2024-07-31", "2024-06-01..2024-06-30", "2024-05-01..2024-05-31",
@@ -242,32 +224,25 @@ class SimpleSearchStrategy(SearchStrategy):
             "2018-07-01..2018-12-31", "2018-01-01..2018-06-30", "2017-01-01..2017-12-31", "..2016-12-31"
         ]
         
-        # Repository size ranges for additional partitioning
         sizes = ["<5", "5..15", "16..50", "51..150", "151..500", "501..1500", "1501..5000", ">5000"]
         
-        # License types for additional diversity
         licenses = ["mit", "apache-2.0", "gpl-3.0", "bsd-2-clause", "bsd-3-clause", "isc", "unlicense", "lgpl-2.1"]
         
-        # Topics for semantic diversity
         topics = [
             "api", "cli", "framework", "library", "tool", "web", "mobile", "game", "machine-learning", "data",
             "security", "blockchain", "iot", "ai", "database", "monitoring", "testing", "automation", "devops", "cloud",
             "frontend", "backend", "fullstack", "microservices", "serverless", "kubernetes", "docker", "react", "vue", "angular"
         ]
         
-        # Multi-dimensional partitioning strategy
-        # We'll cycle through different partition approaches to maximize diversity
         partition_strategy = matrix_index % 6
         
         if partition_strategy == 0:
-            # Primary: Language + Ultra-granular stars
             lang_idx = matrix_index % len(languages)
             star_idx = (matrix_index // len(languages)) % len(star_ranges)
             
             language = languages[lang_idx]
             stars = star_ranges[star_idx]
             
-            # Ultra-specific primary query
             primary_query = f"is:public language:{language} stars:{stars} fork:false archived:false sort:updated"
             
             queries = [
@@ -276,7 +251,6 @@ class SimpleSearchStrategy(SearchStrategy):
             ]
             
         elif partition_strategy == 1:
-            # Time + Ultra-granular stars  
             time_idx = matrix_index % len(time_ranges)
             star_idx = (matrix_index // len(time_ranges)) % len(star_ranges)
             
@@ -291,7 +265,6 @@ class SimpleSearchStrategy(SearchStrategy):
             ]
             
         elif partition_strategy == 2:
-            # Size + Language + Star combinations
             size_idx = matrix_index % len(sizes)
             lang_idx = (matrix_index // len(sizes)) % len(languages)
             star_idx = (matrix_index // (len(sizes) * len(languages))) % len(star_ranges)
@@ -308,7 +281,6 @@ class SimpleSearchStrategy(SearchStrategy):
             ]
             
         elif partition_strategy == 3:
-            # Topic + Ultra-granular stars
             topic_idx = matrix_index % len(topics)
             star_idx = (matrix_index // len(topics)) % len(star_ranges)
             
@@ -323,7 +295,6 @@ class SimpleSearchStrategy(SearchStrategy):
             ]
             
         elif partition_strategy == 4:
-            # License + Language combinations
             license_idx = matrix_index % len(licenses)
             lang_idx = (matrix_index // len(licenses)) % len(languages)
             star_idx = (matrix_index // (len(licenses) * len(languages))) % len(star_ranges)
@@ -340,7 +311,6 @@ class SimpleSearchStrategy(SearchStrategy):
             ]
             
         else:
-            # Special diverse searches for very high matrix indices
             special_searches = [
                 ("is:public fork:false archived:false has:readme stars:0..1 sort:updated", "Active non-forks, documented, 0-1 stars"),
                 ("is:public fork:false archived:false has:readme stars:2..3 sort:updated", "Active non-forks, documented, 2-3 stars"),

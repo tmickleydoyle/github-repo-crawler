@@ -140,10 +140,8 @@ def transform_github_response(api_response: Dict[str, Any]) -> Repository:
     try:
         repo_data = api_response
 
-        # Parse creation date safely
         created_at = None
         if repo_data.get("createdAt"):
-            # GitHub returns ISO format with Z suffix
             created_at_str = repo_data["createdAt"].replace("Z", "+00:00")
             created_at = datetime.fromisoformat(created_at_str).replace(tzinfo=None)
 

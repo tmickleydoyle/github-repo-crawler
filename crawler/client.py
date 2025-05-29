@@ -23,7 +23,6 @@ from .domain import (
 )
 from .search_strategy import SimpleSearchStrategy
 
-# Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -58,8 +57,8 @@ class GitHubClient:
     async def __aenter__(self):
         """Async context manager entry."""
         self._connector = aiohttp.TCPConnector(
-            limit=100,  # Total connection pool size
-            limit_per_host=20,  # Connections per host
+            limit=100,
+            limit_per_host=20,
             keepalive_timeout=30,
             enable_cleanup_closed=True,
         )
@@ -121,11 +120,9 @@ class GitHubClient:
 
         try:
             async with self._session.post(self.graphql_url, json=payload) as resp:
-                # Handle authentication errors first
                 if resp.status == 401:
                     raise AuthenticationError("GitHub API authentication failed")
 
-                # Handle rate limiting
                 if resp.status == 403:
                     response_text = await resp.text()
                     if "rate limit" in response_text.lower():
@@ -133,7 +130,6 @@ class GitHubClient:
                         await asyncio.sleep(60)
                         raise RateLimitError("GitHub API rate limit exceeded")
 
-                # Handle server errors
                 if resp.status in {502, 503, 504}:
                     raise aiohttp.ClientResponseError(
                         resp.request_info,
@@ -142,21 +138,17 @@ class GitHubClient:
                         message=f"Server error: {resp.status}",
                     )
 
-                # For successful responses, handle rate limiting headers
                 if resp.status == 200:
-                    # Rate limit preemptive pause
                     remaining = int(resp.headers.get("X-RateLimit-Remaining", 1))
                     if remaining < 10:
                         await asyncio.sleep(0.5)
 
                     response_data = await resp.json()
 
-                    # Handle GraphQL errors
                     if "errors" in response_data:
                         errors = response_data["errors"]
                         error_messages = [str(error) for error in errors]
 
-                        # Check for specific error types
                         for error in errors:
                             error_str = str(error)
                             if "FORBIDDEN" in error_str or "Unauthorized" in error_str:
@@ -168,7 +160,6 @@ class GitHubClient:
                                 await asyncio.sleep(60)
                                 raise RateLimitError(f"GraphQL rate limited: {error}")
 
-                        # If we have data despite errors, log and continue
                         if "data" in response_data and response_data["data"]:
                             logger.warning(
                                 f"⚠️ GraphQL errors (continuing): " f"{error_messages}"
@@ -178,9 +169,8 @@ class GitHubClient:
 
                     return response_data
 
-                # Handle any other non-200 status codes
                 resp.raise_for_status()
-                return {}  # Should never reach here due to raise_for_status
+                return {}
         except aiohttp.ClientError as e:
             logger.warning(f"🔁 Network error: {e}")
             raise
@@ -244,7 +234,6 @@ class GitHubClient:
             search_data = response["data"]["search"]
             rate_limit = response["data"]["rateLimit"]
 
-            # Convert raw API response to domain objects
             repositories = []
             for node in search_data["nodes"]:
                 repo = transform_github_response(node)
@@ -261,7 +250,6 @@ class GitHubClient:
             }
 
         except (RateLimitError, AuthenticationError, SearchExhaustedError):
-            # Re-raise domain exceptions
             raise
         except Exception as e:
             logger.error(
@@ -286,7 +274,6 @@ class GitHubClient:
         repository_ids: set[int] = set()
         target_repos = settings.max_repos
 
-        # Use search strategy to generate optimized queries
         search_queries = self.search_strategy.generate_queries(
             matrix_index, matrix_total
         )
@@ -315,14 +302,12 @@ class GitHubClient:
                 )
                 continue
 
-        # Truncate to target and calculate stats
         final_repositories = repositories[:target_repos]
 
-        # Create crawl result with all repositories and metadata
         crawl_result = CrawlResult(
             repositories=final_repositories,
-            total_found=len(repositories),  # Total before truncation
-            duration_seconds=0.0,  # This could be calculated if needed
+            total_found=len(repositories),
+            duration_seconds=0.0,
             errors=[],
         )
 
@@ -355,13 +340,12 @@ class GitHubClient:
         """Process a single search query with pagination."""
         after_cursor = None
         pages_processed = 0
-        max_pages = 10  # Prevent infinite loops
+        max_pages = 10
 
         while len(repositories) < target_repos and pages_processed < max_pages:
             try:
                 result = await self.search_repositories(search_query, after_cursor)
 
-                # Process repositories from this page
                 batch_added = 0
                 for repo in result["repositories"]:
                     if repo.id not in repository_ids:
@@ -377,7 +361,6 @@ class GitHubClient:
                     f"Added {batch_added} new repositories"
                 )
 
-                # Check if we should continue paginating
                 page_info = result["pageInfo"]
                 if not page_info["hasNextPage"]:
                     break
@@ -385,7 +368,6 @@ class GitHubClient:
                 after_cursor = page_info["endCursor"]
                 pages_processed += 1
 
-                # Respect rate limits
                 if result["rateLimit"]["remaining"] < 100:
                     logger.info("⏱️ Rate limit low, sleeping...")
                     await asyncio.sleep(1)

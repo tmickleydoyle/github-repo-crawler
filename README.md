@@ -182,13 +182,13 @@ This project includes a sophisticated GitHub Actions workflow that implements th
 
 ### Example Configurations
 
-**Quick Test (Small Scale)**
+**Quick Test**
 ```yaml
 matrix_size: 10
 max_repos_per_job: 500
 ```
 
-**Production Run (Target 800K repositories)**
+**Production Run**
 ```yaml
 matrix_size: 200
 max_repos_per_job: 4000
@@ -359,14 +359,11 @@ As outlined in the original requirements, scaling to 500M repositories would req
 
 2. **Architecture Modifications:**
    - Microservices architecture with separate crawler instances
-   - Stream processing (Apache Kafka) for real-time data
-   - ElasticSearch for full-text search capabilities
+   - Stream processing (Apache Kafka) to quickly move large volumes of data without unloading mono-CSV files
    - Data lake storage (S3/GCS) for long-term analytics
 
 3. **Performance Optimizations:**
    - Connection pooling with higher limits
-   - Batch processing with larger batch sizes
-   - Horizontal partitioning by repository age/activity
    - Caching layer for frequently accessed data
 
 ### Schema Evolution

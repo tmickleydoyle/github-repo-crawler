@@ -24,13 +24,11 @@ def parse_github_datetime(dt_input):
     if not dt_input:
         return None
     
-    # If it's already a datetime object, just ensure it's timezone-naive
     if isinstance(dt_input, datetime):
         if dt_input.tzinfo:
             return dt_input.astimezone(timezone.utc).replace(tzinfo=None)
         return dt_input
     
-    # If it's a string, parse it
     if isinstance(dt_input, str):
         dt_aware = datetime.fromisoformat(dt_input.replace("Z", "+00:00"))
         return dt_aware.astimezone(timezone.utc).replace(tzinfo=None)
@@ -81,7 +79,6 @@ async def store_repositories(crawl_result: CrawlResult, matrix_index: int):
             database=os.getenv("POSTGRES_DB", "crawler"),
         )
 
-        # Ensure tables exist with proper schema (matching migrations)
         await conn.execute(
             """
             CREATE TABLE IF NOT EXISTS repo (
@@ -107,7 +104,6 @@ async def store_repositories(crawl_result: CrawlResult, matrix_index: int):
         """
         )
 
-        # Create indexes for performance
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_repo_stars ON repo (id)")
         await conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_repo_name_with_owner "
@@ -124,7 +120,6 @@ async def store_repositories(crawl_result: CrawlResult, matrix_index: int):
 
         current_date = datetime.now(timezone.utc).date()
 
-        # Use transaction for data consistency
         async with conn.transaction():
             successful_inserts = 0
             failed_inserts = 0
@@ -175,7 +170,6 @@ async def store_repositories(crawl_result: CrawlResult, matrix_index: int):
         if failed_inserts > 0:
             logger.warning(f"⚠️ Failed to store {failed_inserts} repositories")
 
-        # Log statistics
         logger.info("📊 Crawl Statistics:")
         logger.info(f"   - Total repositories: {len(crawl_result.repositories)}")
         logger.info(f"   - Unique owners: {crawl_result.unique_owners}")
@@ -208,19 +202,15 @@ async def run():
     logger.info(f"🔢 Matrix job: {args.matrix_index + 1}/{args.matrix_total}")
 
     try:
-        # Use async context manager for proper resource management
         async with GitHubClient() as client:
-            # Test connection first
             if not await client.test_connection():
                 logger.error("❌ GitHub API connection test failed")
                 return
 
-            # Perform crawl using domain models
             crawl_result = await client.crawl(
                 matrix_total=args.matrix_total, matrix_index=args.matrix_index
             )
 
-            # Store results using improved database operations
             await store_repositories(crawl_result, args.matrix_index)
 
             logger.info("🎉 Crawl completed successfully!")

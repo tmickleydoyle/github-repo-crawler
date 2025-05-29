@@ -49,7 +49,7 @@ class TestGitHubClientInitialization:
     def test_client_has_connector(self):
         """Test client can create connection pool."""
         client = GitHubClient(token="valid_token_123")
-        assert client._connector is None  # Not created until async context
+        assert client._connector is None
 
 
 class TestGitHubClientContextManager:
@@ -69,7 +69,6 @@ class TestGitHubClientContextManager:
         """Test context manager cleans up resources."""
         client = GitHubClient(token="valid_token_123")
 
-        # Mock the close methods to verify they're called
         with patch.object(
             aiohttp.ClientSession, "close", new_callable=AsyncMock
         ) as mock_session_close, patch.object(
@@ -77,9 +76,8 @@ class TestGitHubClientContextManager:
         ) as mock_connector_close:
 
             async with client:
-                pass  # Exit context manager
+                pass
 
-            # Verify cleanup was called
             mock_session_close.assert_called_once()
             mock_connector_close.assert_called_once()
 
@@ -92,7 +90,6 @@ class TestGitHubClientConnection:
         """Test successful connection test."""
         client = GitHubClient(token="valid_token_123")
 
-        # Mock successful API response
         mock_response = {
             "data": {
                 "viewer": {"login": "test_user"},
@@ -142,17 +139,13 @@ class TestGitHubClientRequestHandling:
             "data": {"search": {"nodes": []}},
         }
 
-        # Test the method by calling it directly and bypassing retry issues
-        # Mock the session post method properly with real session
         async with client:
-            # Mock the actual HTTP response
             with patch.object(client._session, "post") as mock_post:
                 mock_response = AsyncMock()
                 mock_response.status = 200
                 mock_response.json = AsyncMock(return_value=mock_response_data)
                 mock_response.headers = {"X-RateLimit-Remaining": "1000"}
 
-                # Create a proper async context manager
                 mock_context = AsyncMock()
                 mock_context.__aenter__ = AsyncMock(return_value=mock_response)
                 mock_context.__aexit__ = AsyncMock(return_value=None)
@@ -167,17 +160,14 @@ class TestGitHubClientRequestHandling:
         """Test GraphQL request handles rate limiting."""
         client = GitHubClient(token="valid_token_123")
 
-        # Test rate limiting with real session
         async with client:
             with patch.object(client._session, "post") as mock_post, patch(
                 "asyncio.sleep", new_callable=AsyncMock
             ):
-                # Mock rate limit response
                 mock_response = AsyncMock()
                 mock_response.status = 403
                 mock_response.text = AsyncMock(return_value="rate limit exceeded")
 
-                # Create proper async context manager
                 mock_context = AsyncMock()
                 mock_context.__aenter__ = AsyncMock(return_value=mock_response)
                 mock_context.__aexit__ = AsyncMock(return_value=None)
@@ -191,7 +181,6 @@ class TestGitHubClientRequestHandling:
         """Test GraphQL request handles authentication errors."""
         client = GitHubClient(token="valid_token_123")
 
-        # Mock authentication error response
         mock_response = AsyncMock()
         mock_response.status = 401
 
@@ -207,16 +196,13 @@ class TestGitHubClientRequestHandling:
         """Test GraphQL request handles server errors with retry."""
         client = GitHubClient(token="valid_token_123")
 
-        # Test server error handling with real session
         async with client:
             with patch.object(client._session, "post") as mock_post:
-                # Mock server error response
                 mock_response = AsyncMock()
                 mock_response.status = 502
                 mock_response.request_info = Mock()
                 mock_response.history = Mock()
 
-                # Create proper async context manager
                 mock_context = AsyncMock()
                 mock_context.__aenter__ = AsyncMock(return_value=mock_response)
                 mock_context.__aexit__ = AsyncMock(return_value=None)
@@ -312,7 +298,6 @@ class TestGitHubClientSearchRepositories:
             async with client:
                 await client.search_repositories(search_query, after="cursor123")
 
-                # Verify the cursor was passed in the request
                 call_args = mock_request.call_args[0][0]
                 assert call_args["variables"]["after"] == "cursor123"
 
@@ -344,7 +329,6 @@ class TestGitHubClientCrawl:
         """Test basic crawl functionality."""
         client = GitHubClient(token="valid_token_123")
 
-        # Mock search strategy
         mock_queries = [
             SearchQuery(query_string="test query 1", description="Test query 1"),
             SearchQuery(query_string="test query 2", description="Test query 2"),
@@ -365,8 +349,6 @@ class TestGitHubClientCrawl:
                     assert hasattr(result, "total_stars")
                     assert isinstance(result.repositories, list)
 
-                    # Should have called generate_queries
                     mock_generate.assert_called_once_with(0, 2)
 
-                    # Should have attempted to crawl each query
                     assert mock_crawl_query.call_count == len(mock_queries)
