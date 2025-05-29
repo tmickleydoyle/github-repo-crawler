@@ -6,3 +6,18 @@ pydantic
 pydantic-settings
 python-dotenv
 python-dateutil
+
+# Testing dependencies
+pytest
+pytest-asyncio
+pytest-mock
+pytest-cov
+
+# Code quality dependencies  
+black
+flake8
+mypy
+isort
+
+# Development dependencies
+pre-commit

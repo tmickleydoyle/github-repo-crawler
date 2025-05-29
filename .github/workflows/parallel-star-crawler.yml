@@ -53,6 +53,24 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Code Quality Checks
+        run: |
+          echo "🔍 Running Code Quality Checks..."
+
+          # 1. Linting with flake8
+          echo "1️⃣ Running flake8 linting..."
+          python -m flake8 crawler/ tests/ --count --statistics
+
+          # 2. Type checking with mypy
+          echo "2️⃣ Running mypy type checking..."
+          python -m mypy crawler/ tests/ --ignore-missing-imports
+
+          # 3. Code formatting check
+          echo "3️⃣ Checking code formatting..."
+          python -m black --check crawler/ tests/ --line-length 88
+
+          echo "✅ All code quality checks passed!"
+
       - name: Validate crawler code
         run: |
           echo "🔍 Validating crawler code..."
@@ -67,7 +85,7 @@ jobs:
 
           # Test imports
           try:
-              from crawler import client, main, config, models
+              from crawler import client, main, config, domain, search_strategy
               print('✅ All crawler modules import successfully')
           except Exception as e:
               print(f'❌ Import error: {e}')
@@ -84,6 +102,11 @@ jobs:
 
           print('🎉 Validation passed!')
           "
+
+      - name: Run Tests
+        run: |
+          echo "🔍 Running test suite..."
+          python -m pytest tests/ -v --tb=short
 
   generate-matrix:
     runs-on: ubuntu-latest

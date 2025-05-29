@@ -1,155 +1,244 @@
 import argparse
 import asyncio
 import asyncpg
-import json
 import os
+import logging
 from datetime import datetime, timezone
 
 from .client import GitHubClient
 from .config import settings
+from .domain import CrawlResult
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
+
 
 def parse_github_datetime(dt_str):
-    """Parse GitHub datetime string to timezone-naive datetime for PostgreSQL"""
+    """
+    Parse GitHub datetime string to timezone-naive datetime for PostgreSQL
+    """
     if not dt_str:
         return None
-    dt_aware = datetime.fromisoformat(dt_str.replace('Z', '+00:00'))
+    dt_aware = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
     return dt_aware.astimezone(timezone.utc).replace(tzinfo=None)
+
 
 def parse_args():
     p = argparse.ArgumentParser(description="Crawl GitHub repos for star counts")
-    p.add_argument("--repos", type=int, default=settings.max_repos,
-                   help="Number of repos to crawl")
-    p.add_argument("--matrix-total", type=int, default=1,
-                   help="Total number of matrix jobs")
-    p.add_argument("--matrix-index", type=int, default=0,
-                   help="Current matrix job index (0-based)")
+    p.add_argument(
+        "--repos",
+        type=int,
+        default=settings.max_repos,
+        help="Number of repos to crawl",
+    )
+    p.add_argument(
+        "--matrix-total",
+        type=int,
+        default=1,
+        help="Total number of matrix jobs",
+    )
+    p.add_argument(
+        "--matrix-index",
+        type=int,
+        default=0,
+        help="Current matrix job index (0-based)",
+    )
     return p.parse_args()
 
-async def store_repositories(repos: list, matrix_index: int):
-    """Store repositories with comprehensive metadata in the enhanced database schema"""
-    conn = await asyncpg.connect(
-        host=os.getenv('POSTGRES_HOST', 'localhost'),
-        port=int(os.getenv('POSTGRES_PORT', 5432)),
-        user=os.getenv('POSTGRES_USER', 'crawler_user'),
-        password=os.getenv('POSTGRES_PASSWORD', 'crawler_password'),
-        database=os.getenv('POSTGRES_DB', 'github_crawler')
-    )
-    
-    await conn.execute('''
-        CREATE TABLE IF NOT EXISTS repo (
-            id BIGINT PRIMARY KEY,
-            name TEXT NOT NULL,
-            owner TEXT NOT NULL,
-            url TEXT NOT NULL,
-            created_at TIMESTAMP,
-            alphabet_partition VARCHAR(100),
-            name_with_owner TEXT
+
+async def store_repositories(crawl_result: CrawlResult, matrix_index: int):
+    """
+    Store repositories using domain models with enhanced error handling.
+
+    This function implements proper database operations with:
+    - Domain model usage instead of raw dictionaries
+    - Comprehensive error handling
+    - Transaction safety
+    - Proper connection management
+    """
+    conn = None
+    try:
+        conn = await asyncpg.connect(
+            host=os.getenv("POSTGRES_HOST", "localhost"),
+            port=int(os.getenv("POSTGRES_PORT", 5432)),
+            user=os.getenv("POSTGRES_USER", "crawler_user"),
+            password=os.getenv("POSTGRES_PASSWORD", "crawler_password"),
+            database=os.getenv("POSTGRES_DB", "github_crawler"),
         )
-    ''')
-    
-    await conn.execute('''
-        CREATE TABLE IF NOT EXISTS repo_stats (
-            repo_id BIGINT NOT NULL REFERENCES repo(id) ON DELETE CASCADE,
-            fetched_date DATE NOT NULL,
-            stars INT NOT NULL,
-            PRIMARY KEY(repo_id, fetched_date)
+
+        # Ensure tables exist with proper schema
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS repo (
+                id BIGINT PRIMARY KEY,
+                name TEXT NOT NULL,
+                owner TEXT NOT NULL,
+                url TEXT NOT NULL,
+                created_at TIMESTAMP,
+                alphabet_partition VARCHAR(100),
+                name_with_owner TEXT,
+                primary_language TEXT,
+                fork_count INTEGER DEFAULT 0,
+                license_name TEXT,
+                pushed_at TIMESTAMP,
+                updated_at TIMESTAMP
+            )
+        """
         )
-    ''')
-    
-    await conn.execute('CREATE INDEX IF NOT EXISTS idx_repo_stars ON repo (id)') 
-    await conn.execute('CREATE INDEX IF NOT EXISTS idx_repo_name_with_owner ON repo (name_with_owner)')
-    await conn.execute('CREATE INDEX IF NOT EXISTS idx_repo_alphabet_partition ON repo (alphabet_partition)')
-    
-    current_date = datetime.now(timezone.utc).date()
-    
-    for repo in repos:
-        try:
-            await conn.execute('''
-                INSERT INTO repo 
-                (id, name, owner, url, created_at, name_with_owner, alphabet_partition)
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
-                ON CONFLICT (id) DO UPDATE SET
-                    name_with_owner = EXCLUDED.name_with_owner,
-                    alphabet_partition = EXCLUDED.alphabet_partition
-            ''', 
-            repo["id"], 
-            repo["name"], 
-            repo["owner"],
-            repo["url"], 
-            parse_github_datetime(repo.get("created_at")),
-            repo["name_with_owner"],
-            f"matrix_{matrix_index}")
-            
-            await conn.execute('''
-                INSERT INTO repo_stats (repo_id, fetched_date, stars)
-                VALUES ($1, $2, $3)
-                ON CONFLICT (repo_id, fetched_date) DO UPDATE SET
-                    stars = EXCLUDED.stars
-            ''',
-            repo["id"],
-            current_date,
-            repo["stars"])
-            
-        except Exception as e:
-            print(f"⚠️ Error inserting repo {repo['id']}: {e}")
-    
-    await conn.close()
-    print(f"✅ Stored {len(repos)} repositories in repo table with star data in repo_stats")
+
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS repo_stats (
+                repo_id BIGINT NOT NULL REFERENCES repo(id) ON DELETE CASCADE,
+                fetched_date DATE NOT NULL,
+                stars INT NOT NULL,
+                PRIMARY KEY(repo_id, fetched_date)
+            )
+        """
+        )
+
+        # Create indexes for performance
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_repo_stars ON repo (id)")
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_repo_name_with_owner "
+            "ON repo (name_with_owner)"
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_repo_alphabet_partition "
+            "ON repo (alphabet_partition)"
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_repo_language " "ON repo (primary_language)"
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_repo_stats_date "
+            "ON repo_stats (fetched_date)"
+        )
+
+        current_date = datetime.now(timezone.utc).date()
+
+        # Use transaction for data consistency
+        async with conn.transaction():
+            successful_inserts = 0
+            failed_inserts = 0
+
+            for repo in crawl_result.repositories:
+                try:
+                    # Parse datetime fields safely
+                    created_at = parse_github_datetime(repo.created_at)
+                    pushed_at = parse_github_datetime(repo.pushed_at)
+                    updated_at = parse_github_datetime(repo.updated_at)
+
+                    await conn.execute(
+                        """
+                        INSERT INTO repo
+                        (id, name, owner, url, created_at, name_with_owner,
+                         alphabet_partition, primary_language, fork_count,
+                         license_name, pushed_at, updated_at)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                        ON CONFLICT (id) DO UPDATE SET
+                            name_with_owner = EXCLUDED.name_with_owner,
+                            alphabet_partition = EXCLUDED.alphabet_partition,
+                            primary_language = EXCLUDED.primary_language,
+                            fork_count = EXCLUDED.fork_count,
+                            license_name = EXCLUDED.license_name,
+                            pushed_at = EXCLUDED.pushed_at,
+                            updated_at = EXCLUDED.updated_at
+                    """,
+                        repo.id,
+                        repo.name,
+                        repo.owner,
+                        repo.url,
+                        created_at,
+                        repo.name_with_owner,
+                        f"matrix_{matrix_index}",
+                        repo.primary_language,
+                        repo.fork_count,
+                        repo.license_name,
+                        pushed_at,
+                        updated_at,
+                    )
+
+                    await conn.execute(
+                        """
+                        INSERT INTO repo_stats (repo_id, fetched_date, stars)
+                        VALUES ($1, $2, $3)
+                        ON CONFLICT (repo_id, fetched_date) DO UPDATE SET
+                            stars = EXCLUDED.stars
+                    """,
+                        repo.id,
+                        current_date,
+                        repo.stars,
+                    )
+
+                    successful_inserts += 1
+
+                except Exception as e:
+                    logger.error(f"⚠️ Error inserting repo {repo.id}: {e}")
+                    failed_inserts += 1
+
+        logger.info(f"✅ Successfully stored {successful_inserts} repositories")
+        if failed_inserts > 0:
+            logger.warning(f"⚠️ Failed to store {failed_inserts} repositories")
+
+        # Log statistics
+        logger.info("📊 Crawl Statistics:")
+        logger.info(f"   - Total repositories: {len(crawl_result.repositories)}")
+        logger.info(f"   - Unique owners: {crawl_result.unique_owners}")
+        logger.info(f"   - Total stars: {crawl_result.total_stars:,}")
+        logger.info(f"   - Average stars: {crawl_result.average_stars:.1f}")
+        logger.info(f"   - Matrix job: {matrix_index}")
+
+    except Exception as e:
+        logger.error(f"❌ Database operation failed: {e}")
+        raise
+    finally:
+        if conn:
+            await conn.close()
+
 
 async def run():
+    """
+    Main entry point using clean architecture principles.
+
+    This function demonstrates proper:
+    - Resource management with async context managers
+    - Error handling with custom exceptions
+    - Domain model usage
+    - Separation of concerns
+    """
     args = parse_args()
-    
-    print(f"🚀 Matrix Job {args.matrix_index + 1}/{args.matrix_total}")
-    print(f"🎯 Target: {settings.max_repos} repositories")
-    print(f"🧠 Memory: Optimized for large-scale collection")
-    print(f"🔑 GitHub token configured: {'Yes' if settings.github_token and settings.github_token != 'dummy_token_for_validation' else 'No'}")
 
-    if not settings.github_token or settings.github_token == 'dummy_token_for_validation':
-        print("❌ ERROR: GitHub token not properly configured!")
-        print("Expected environment variable: GITHUB_TOKEN")
-        print(f"Current token value: '{settings.github_token}'")
-        return 0
+    logger.info("🚀 Starting GitHub crawler")
+    logger.info(f"📊 Target repositories: {args.repos}")
+    logger.info(f"🔢 Matrix job: {args.matrix_index + 1}/{args.matrix_total}")
 
-    start_time = datetime.now()
-    
     try:
-        client = GitHubClient()
-        
-        print("🔍 Testing GitHub API connection...")
-        if not await client.test_connection():
-            print("❌ FATAL: GitHub API connection failed!")
-            return 0
+        # Use async context manager for proper resource management
+        async with GitHubClient() as client:
+            # Test connection first
+            if not await client.test_connection():
+                logger.error("❌ GitHub API connection test failed")
+                return
 
-        repos = await client.crawl(matrix_total=args.matrix_total, matrix_index=args.matrix_index)
-        
-        if not repos:
-            print("⚠️ WARNING: No repositories were collected!")
-            print("This could indicate:")
-            print("  - GitHub API authentication issues")
-            print("  - Rate limiting")
-            print("  - Search query returned no results")
-            print("  - Network connectivity issues")
-            return 0
-        
-        end_time = datetime.now()
-        duration = (end_time - start_time).total_seconds()
-        repos_per_second = len(repos) / duration if duration > 0 else 0
-        
-        print(f"⏱️ Collection completed in {duration:.2f} seconds")
-        print(f"🚀 Rate: {repos_per_second:.2f} repositories/second")
-        
-        await store_repositories(repos, args.matrix_index)
-        
-        print(f"🎉 Matrix job {args.matrix_index} completed successfully!")
-        print(f"📊 Final count: {len(repos)} unique repositories")
-        
-        return len(repos)
-        
+            # Perform crawl using domain models
+            crawl_result = await client.crawl(
+                matrix_total=args.matrix_total, matrix_index=args.matrix_index
+            )
+
+            # Store results using improved database operations
+            await store_repositories(crawl_result, args.matrix_index)
+
+            logger.info("🎉 Crawl completed successfully!")
+
     except Exception as e:
-        print(f"❌ FATAL ERROR in crawler: {e}")
-        import traceback
-        traceback.print_exc()
-        return 0
+        logger.error(f"❌ Crawl failed: {e}")
+        raise
+
 
 if __name__ == "__main__":
     asyncio.run(run())
