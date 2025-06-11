@@ -171,7 +171,6 @@ class TestErrorHandling:
         with patch("crawler.main.asyncpg.connect") as mock_connect:
             mock_connect.side_effect = Exception("Database connection failed")
 
-
             with pytest.raises(Exception, match="Database connection failed"):
                 await store_repositories(test_crawl_result, matrix_index=0)
 
