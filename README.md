@@ -94,7 +94,7 @@ github-crawler-task/
 
 ```bash
 # Clone the repository
-git clone git@github.com:magic-task-submissions/github-crawler-task_tmickleydoyle.git
+git clone git@github.com:tmickleydoyle/github-repo-crawler.git
 cd github-crawler-task
 
 # Install Python dependencies
