@@ -4,8 +4,6 @@ A high-performance, scalable Python application that crawls GitHub repositories 
 
 ## 📋 Project Overview
 
-This project fulfills the requirements outlined in [ORIGINAL_README.md](./ORIGINAL_README.md) by implementing:
-
 - **Parallel GraphQL API crawling** using GitHub's GraphQL API v4
 - **PostgreSQL database** with optimized schema for efficient updates
 - **Rate limit handling** with exponential backoff and retry mechanisms
