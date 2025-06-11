@@ -164,7 +164,7 @@ jobs:
 
     strategy:
       matrix: ${{ fromJson(needs.generate-matrix.outputs.matrix) }}
-      max-parallel: 100
+      max-parallel: 250
       fail-fast: false # Continue other jobs even if some fail
 
     steps:
