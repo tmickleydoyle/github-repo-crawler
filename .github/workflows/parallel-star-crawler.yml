@@ -15,7 +15,7 @@ on:
       max_repos_per_job:
         description: "Max repositories per job"
         required: false
-        default: "2000"
+        default: "1000"
         type: string
 
 permissions:
