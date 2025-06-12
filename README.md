@@ -72,7 +72,6 @@ github-crawler-task/
 │   └── test_search_strategy.py
 ├── .github/workflows/          # CI/CD pipeline
 │   ├── parallel-star-crawler.yml
-│   └── code-quality.yml
 ├── database_exports/           # Generated data exports
 ├── configure_pipeline.py       # Pipeline validation helper
 ├── docker-compose.yml          # Local PostgreSQL setup
