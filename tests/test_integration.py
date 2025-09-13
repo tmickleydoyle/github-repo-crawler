@@ -121,21 +121,22 @@ class TestCrawlerIntegration:
             duration_seconds=0.8,
         )
 
-        with patch("crawler.main.asyncpg.connect") as mock_connect:
-            mock_conn = AsyncMock()
-            mock_connect.return_value = mock_conn
-
-            mock_transaction = AsyncMock()
-            mock_transaction.__aenter__ = AsyncMock(return_value=mock_transaction)
-            mock_transaction.__aexit__ = AsyncMock(return_value=None)
-
-            mock_conn.transaction = lambda: mock_transaction
+        # Test the store_repositories function with proper repository mocking
+        with patch("crawler.main.RepoRepository") as mock_repo_class:
+            mock_repo = AsyncMock()
+            mock_repo_class.return_value = mock_repo
+            mock_repo.init = AsyncMock()
+            mock_repo.upsert_repos = AsyncMock()
+            mock_repo.insert_stats = AsyncMock()
+            mock_repo.close = AsyncMock()
 
             await store_repositories(test_crawl_result, matrix_index=0)
 
-            mock_connect.assert_called_once()
-            mock_conn.execute.assert_called()
-            mock_conn.close.assert_called_once()
+            # Verify repository operations were called
+            mock_repo.init.assert_called_once()
+            mock_repo.upsert_repos.assert_called_once()
+            mock_repo.insert_stats.assert_called_once()
+            mock_repo.close.assert_called_once()
 
 
 class TestErrorHandling:
@@ -168,8 +169,11 @@ class TestErrorHandling:
             duration_seconds=0.0,
         )
 
-        with patch("crawler.main.asyncpg.connect") as mock_connect:
-            mock_connect.side_effect = Exception("Database connection failed")
+        # Test database connection error handling
+        with patch("crawler.main.RepoRepository") as mock_repo_class:
+            mock_repo = AsyncMock()
+            mock_repo_class.return_value = mock_repo
+            mock_repo.init.side_effect = Exception("Database connection failed")
 
             with pytest.raises(Exception, match="Database connection failed"):
                 await store_repositories(test_crawl_result, matrix_index=0)
@@ -201,15 +205,14 @@ class TestPerformance:
             duration_seconds=5.0,
         )
 
-        with patch("crawler.main.asyncpg.connect") as mock_connect:
-            mock_conn = AsyncMock()
-            mock_connect.return_value = mock_conn
-
-            mock_transaction = AsyncMock()
-            mock_transaction.__aenter__ = AsyncMock(return_value=mock_transaction)
-            mock_transaction.__aexit__ = AsyncMock(return_value=None)
-
-            mock_conn.transaction = lambda: mock_transaction
+        # Test performance with large repository set using repository layer
+        with patch("crawler.main.RepoRepository") as mock_repo_class:
+            mock_repo = AsyncMock()
+            mock_repo_class.return_value = mock_repo
+            mock_repo.init = AsyncMock()
+            mock_repo.upsert_repos = AsyncMock()
+            mock_repo.insert_stats = AsyncMock()
+            mock_repo.close = AsyncMock()
 
             import time
 
@@ -222,9 +225,12 @@ class TestPerformance:
 
             assert duration < 5.0
 
-            # Verify all repositories were processed
-            # execute should be called for each repo (insert into repo + repo_stats)
-            # + table creation
-            # 2 inserts per repo + 6 for table/index creation (2 tables + 4 indexes)
-            expected_calls = len(large_repo_set) * 2 + 6
-            assert mock_conn.execute.call_count >= expected_calls
+            # Verify all repositories were processed with bulk operations
+            mock_repo.upsert_repos.assert_called_once()
+            mock_repo.insert_stats.assert_called_once()
+            
+            # Verify we called with correct number of repositories
+            repos_call = mock_repo.upsert_repos.call_args[0][0]
+            stats_call = mock_repo.insert_stats.call_args[0][0]
+            assert len(repos_call) == len(large_repo_set)
+            assert len(stats_call) == len(large_repo_set)

@@ -6,7 +6,7 @@ from external API concerns, implementing an anti-corruption layer.
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, date
 from typing import Optional, List, Dict, Any
 
 
@@ -162,3 +162,28 @@ def create_repository_stats(
 ) -> RepositoryStats:
     """Create repository statistics from a repository and fetch date."""
     return RepositoryStats(repo_id=repo.id, stars=repo.stars, fetched_date=fetched_date)
+
+
+def repository_to_repo_model(repository: Repository, alphabet_partition: Optional[str] = None):
+    """Convert domain Repository to models.Repo for database operations."""
+    from .models import Repo
+    
+    return Repo(
+        id=repository.id,
+        name=repository.name,
+        owner=repository.owner,
+        url=repository.url,
+        created_at=repository.created_at or datetime.now(),
+        alphabet_partition=alphabet_partition,
+    )
+
+
+def repository_to_repo_stats_model(repository: Repository, fetched_date: date):
+    """Convert domain Repository to models.RepoStats for database operations.""" 
+    from .models import RepoStats
+    
+    return RepoStats(
+        repo_id=repository.id,
+        fetched_date=fetched_date,
+        stars=repository.stars,
+    )

@@ -49,6 +49,7 @@ class RepoRepository:
 
         Uses ON CONFLICT to handle duplicate repository IDs gracefully.
         Preserves existing alphabet_partition values when updating.
+        The name_with_owner field is automatically populated by database trigger.
         """
         if not repos:
             return

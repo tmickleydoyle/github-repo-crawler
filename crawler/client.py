@@ -57,15 +57,15 @@ class GitHubClient:
     async def __aenter__(self):
         """Async context manager entry."""
         self._connector = aiohttp.TCPConnector(
-            limit=100,
-            limit_per_host=20,
+            limit=settings.max_connections,
+            limit_per_host=settings.max_connections_per_host,
             keepalive_timeout=30,
             enable_cleanup_closed=True,
         )
         self._session = aiohttp.ClientSession(
             connector=self._connector,
             headers=self.headers,
-            timeout=aiohttp.ClientTimeout(total=30),
+            timeout=aiohttp.ClientTimeout(total=settings.request_timeout),
         )
         return self
 
