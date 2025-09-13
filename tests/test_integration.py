@@ -228,7 +228,7 @@ class TestPerformance:
             # Verify all repositories were processed with bulk operations
             mock_repo.upsert_repos.assert_called_once()
             mock_repo.insert_stats.assert_called_once()
-            
+
             # Verify we called with correct number of repositories
             repos_call = mock_repo.upsert_repos.call_args[0][0]
             stats_call = mock_repo.insert_stats.call_args[0][0]
