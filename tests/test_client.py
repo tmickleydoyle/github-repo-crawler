@@ -181,13 +181,16 @@ class TestGitHubClientRequestHandling:
         """Test GraphQL request handles authentication errors."""
         client = GitHubClient(token="valid_token_123")
 
-        mock_response = AsyncMock()
-        mock_response.status = 401
+        async with client:
+            with patch.object(client._session, "post") as mock_post:
+                mock_response = AsyncMock()
+                mock_response.status = 401
 
-        with patch.object(client, "_session") as mock_session:
-            mock_session.post.return_value.__aenter__.return_value = mock_response
+                mock_context = AsyncMock()
+                mock_context.__aenter__ = AsyncMock(return_value=mock_response)
+                mock_context.__aexit__ = AsyncMock(return_value=None)
+                mock_post.return_value = mock_context
 
-            async with client:
                 with pytest.raises(AuthenticationError):
                     await client._make_graphql_request({"query": "test"})
 
