@@ -6,10 +6,11 @@ and stored in the database. They provide validation, serialization, and
 type safety for the crawler operations.
 """
 
-from pydantic import BaseModel, Field, field_validator, ConfigDict
 from datetime import date, datetime
+from typing import List, Optional
+
 from dateutil import parser as date_parser
-from typing import Optional, List
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class Repo(BaseModel):
@@ -27,26 +28,26 @@ class Repo(BaseModel):
     url: str
     created_at: datetime
     alphabet_partition: Optional[str] = None
-    
+
     # Repository content and description
     description: Optional[str] = None
     homepage_url: Optional[str] = None
     topics: List[str] = Field(default_factory=list)
     languages: List[str] = Field(default_factory=list)
-    
+
     # Repository statistics
     watchers_count: int = 0
     open_issues_count: int = 0
     subscribers_count: int = 0
     network_count: int = 0
     size_kb: int = 0
-    
+
     # Repository configuration
     default_branch: str = "main"
     visibility: str = "public"
     license_name: Optional[str] = None
     primary_language: Optional[str] = None
-    
+
     # Repository state flags
     is_fork: bool = False
     is_archived: bool = False
@@ -57,7 +58,7 @@ class Repo(BaseModel):
     has_wiki: bool = True
     has_pages: bool = False
     has_downloads: bool = True
-    
+
     # Timestamp fields
     pushed_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

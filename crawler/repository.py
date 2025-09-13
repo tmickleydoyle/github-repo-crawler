@@ -1,12 +1,13 @@
 import asyncpg
 from tenacity import (
     retry,
+    retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
-    retry_if_exception_type,
 )
-from .models import Repo, RepoStats
+
 from .config import settings
+from .models import Repo, RepoStats
 
 
 class RepoRepository:
@@ -58,7 +59,8 @@ class RepoRepository:
         INSERT INTO repo (
             id, name, owner, url, created_at, alphabet_partition,
             description, homepage_url, topics, languages,
-            watchers_count, open_issues_count, subscribers_count, network_count, size_kb,
+            watchers_count, open_issues_count, subscribers_count,
+            network_count, size_kb,
             default_branch, visibility, license_name, primary_language,
             is_fork, is_archived, is_disabled, is_template,
             has_issues, has_projects, has_wiki, has_pages, has_downloads,
@@ -77,7 +79,8 @@ class RepoRepository:
             owner = EXCLUDED.owner,
             url = EXCLUDED.url,
             created_at = EXCLUDED.created_at,
-            alphabet_partition = COALESCE(EXCLUDED.alphabet_partition, repo.alphabet_partition),
+            alphabet_partition = COALESCE(EXCLUDED.alphabet_partition,
+                                       repo.alphabet_partition),
             description = EXCLUDED.description,
             homepage_url = EXCLUDED.homepage_url,
             topics = EXCLUDED.topics,
@@ -114,20 +117,42 @@ class RepoRepository:
                     [
                         (
                             # Core fields ($1-$6)
-                            r.id, r.name, r.owner, r.url, r.created_at, r.alphabet_partition,
+                            r.id,
+                            r.name,
+                            r.owner,
+                            r.url,
+                            r.created_at,
+                            r.alphabet_partition,
                             # Content fields ($7-$10)
-                            r.description, r.homepage_url, r.topics, r.languages,
+                            r.description,
+                            r.homepage_url,
+                            r.topics,
+                            r.languages,
                             # Statistics fields ($11-$15)
-                            r.watchers_count, r.open_issues_count, r.subscribers_count, 
-                            r.network_count, r.size_kb,
+                            r.watchers_count,
+                            r.open_issues_count,
+                            r.subscribers_count,
+                            r.network_count,
+                            r.size_kb,
                             # Configuration fields ($16-$19)
-                            r.default_branch, r.visibility, r.license_name, r.primary_language,
+                            r.default_branch,
+                            r.visibility,
+                            r.license_name,
+                            r.primary_language,
                             # State flags ($20-$23)
-                            r.is_fork, r.is_archived, r.is_disabled, r.is_template,
+                            r.is_fork,
+                            r.is_archived,
+                            r.is_disabled,
+                            r.is_template,
                             # Feature flags ($24-$28)
-                            r.has_issues, r.has_projects, r.has_wiki, r.has_pages, r.has_downloads,
+                            r.has_issues,
+                            r.has_projects,
+                            r.has_wiki,
+                            r.has_pages,
+                            r.has_downloads,
                             # Timestamp fields ($29-$30)
-                            r.pushed_at, r.updated_at,
+                            r.pushed_at,
+                            r.updated_at,
                         )
                         for r in repos
                     ],

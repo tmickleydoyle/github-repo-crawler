@@ -5,9 +5,9 @@ from datetime import datetime, timezone
 
 from .client import GitHubClient
 from .config import settings
-from .domain import CrawlResult, Repository, create_repository_stats
-from .repository import RepoRepository
+from .domain import CrawlResult
 from .memory_utils import MemoryEfficientProcessor, memory_management
+from .repository import RepoRepository
 
 # Configure logging
 logging.basicConfig(
@@ -15,7 +15,6 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
-
 
 
 def parse_args():
@@ -48,53 +47,58 @@ async def store_repositories(crawl_result: CrawlResult, matrix_index: int):
 
     This function implements proper database operations with:
     - Repository pattern usage
-    - Comprehensive error handling  
+    - Comprehensive error handling
     - Transaction safety
     - Bulk operations for performance
     - Memory-efficient batch processing
     """
     repo_repository = RepoRepository()
-    
+
     try:
         await repo_repository.init()
-        
+
         current_date = datetime.now(timezone.utc).date()
-        
+
         # Use memory-efficient processing for large datasets
         with memory_management(force_gc=True, threshold_mb=50):
             processor = MemoryEfficientProcessor(chunk_size=500, max_memory_mb=256)
-            
+
             def process_chunk(repositories_chunk):
                 """Process a chunk of repositories."""
-                from .domain import repository_to_repo_model, repository_to_repo_stats_model
-                
+                from .domain import (
+                    repository_to_repo_model,
+                    repository_to_repo_stats_model,
+                )
+
                 repos = []
                 stats = []
-                
+
                 for repository in repositories_chunk:
                     try:
                         # Create repo model with matrix partition
                         repo_model = repository_to_repo_model(
-                            repository, 
-                            alphabet_partition=f"matrix_{matrix_index}"
+                            repository, alphabet_partition=f"matrix_{matrix_index}"
                         )
                         repos.append(repo_model)
-                        
+
                         # Create stats model
-                        stats_model = repository_to_repo_stats_model(repository, current_date)
+                        stats_model = repository_to_repo_stats_model(
+                            repository, current_date
+                        )
                         stats.append(stats_model)
-                        
+
                     except Exception as e:
                         logger.error(f"⚠️ Error converting repo {repository.id}: {e}")
                         continue
-                
+
                 return repos, stats
-            
+
             # Process repositories in memory-efficient chunks
             all_repos = []
             all_stats = []
-            
+
             from .memory_utils import chunk_list
+
             for chunk in chunk_list(crawl_result.repositories, processor.chunk_size):
                 try:
                     repos, stats = process_chunk(chunk)
@@ -103,15 +107,15 @@ async def store_repositories(crawl_result: CrawlResult, matrix_index: int):
                 except Exception as e:
                     logger.error(f"⚠️ Error processing chunk: {e}")
                     continue
-        
+
         # Bulk insert operations
         if all_repos:
             await repo_repository.upsert_repos(all_repos)
         if all_stats:
             await repo_repository.insert_stats(all_stats)
-        
+
         logger.info(f"✅ Successfully stored {len(all_repos)} repositories")
-        
+
         logger.info("📊 Crawl Statistics:")
         logger.info(f"   - Total repositories: {len(crawl_result.repositories)}")
         logger.info(f"   - Unique owners: {crawl_result.unique_owners}")

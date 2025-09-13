@@ -1,25 +1,26 @@
-import aiohttp
 import asyncio
 import logging
-from typing import Optional, List, Dict, Any
+from typing import Any, Dict, List, Optional
+
+import aiohttp
 from tenacity import (
+    before_sleep_log,
     retry,
+    retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
-    retry_if_exception_type,
-    before_sleep_log,
 )
 
 from .config import settings
 from .domain import (
-    Repository,
+    ApiError,
+    AuthenticationError,
     CrawlResult,
+    RateLimitError,
+    Repository,
+    SearchExhaustedError,
     SearchQuery,
     transform_github_response,
-    RateLimitError,
-    AuthenticationError,
-    SearchExhaustedError,
-    ApiError,
 )
 from .search_strategy import OptimizedSearchStrategy
 
@@ -204,7 +205,7 @@ class GitHubClient:
                 updatedAt
                 description
                 homepageUrl
-                
+
                 # Statistics
                 stargazerCount
                 forkCount
@@ -214,7 +215,7 @@ class GitHubClient:
                 issues(states: OPEN) {
                   totalCount
                 }
-                
+
                 # Language information
                 primaryLanguage {
                   name
@@ -224,7 +225,7 @@ class GitHubClient:
                     name
                   }
                 }
-                
+
                 # Topics
                 repositoryTopics(first: 20) {
                   nodes {
@@ -233,17 +234,17 @@ class GitHubClient:
                     }
                   }
                 }
-                
+
                 # Owner information
                 owner {
                   login
                 }
-                
+
                 # License
                 licenseInfo {
                   name
                 }
-                
+
                 # Repository settings and flags
                 defaultBranchRef {
                   name
@@ -259,7 +260,7 @@ class GitHubClient:
                 hasWikiEnabled
                 hasPages
                 hasDownloads
-                
+
                 # Size and network metrics
                 diskUsage
                 forkingAllowed

@@ -6,13 +6,14 @@ from external API concerns, implementing an anti-corruption layer.
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime, date
-from typing import Optional, List, Dict, Any
+from datetime import date, datetime
+from typing import Any, Dict, List, Optional
 
 
 @dataclass(frozen=True)
 class Repository:
-    """Immutable domain model representing a GitHub repository with comprehensive metadata."""
+    """Immutable domain model representing a GitHub repository with
+    comprehensive metadata."""
 
     # Core identity fields
     id: int
@@ -20,31 +21,31 @@ class Repository:
     owner: str
     url: str
     stars: int
-    
+
     # Basic metadata
     created_at: Optional[datetime] = None
     pushed_at: Optional[str] = None
     updated_at: Optional[str] = None
-    
+
     # Language and technology
     primary_language: Optional[str] = None
     languages: List[str] = field(default_factory=list)
-    
+
     # Repository statistics
     fork_count: int = 0
     watchers_count: int = 0
     open_issues_count: int = 0
-    
+
     # Repository content and features
     description: Optional[str] = None
     homepage_url: Optional[str] = None
     topics: List[str] = field(default_factory=list)
-    
+
     # Repository settings
     license_name: Optional[str] = None
     default_branch: str = "main"
     visibility: str = "public"
-    
+
     # Repository state flags
     is_fork: bool = False
     is_archived: bool = False
@@ -55,7 +56,7 @@ class Repository:
     has_wiki: bool = True
     has_pages: bool = False
     has_downloads: bool = True
-    
+
     # Additional metrics
     size_kb: int = 0
     network_count: int = 0  # Total forks across the network
@@ -190,7 +191,10 @@ def transform_github_response(api_response: Dict[str, Any]) -> Repository:
         # Extract topics list
         topics = []
         if repo_data.get("repositoryTopics", {}).get("nodes"):
-            topics = [topic["topic"]["name"] for topic in repo_data["repositoryTopics"]["nodes"]]
+            topics = [
+                topic["topic"]["name"]
+                for topic in repo_data["repositoryTopics"]["nodes"]
+            ]
 
         # Extract license name
         license_name = None
@@ -199,12 +203,16 @@ def transform_github_response(api_response: Dict[str, Any]) -> Repository:
 
         # Extract primary language
         primary_language = None
-        if repo_data.get("primaryLanguage") and repo_data["primaryLanguage"].get("name"):
+        if repo_data.get("primaryLanguage") and repo_data["primaryLanguage"].get(
+            "name"
+        ):
             primary_language = repo_data["primaryLanguage"]["name"]
 
         # Extract default branch
         default_branch = "main"
-        if repo_data.get("defaultBranchRef") and repo_data["defaultBranchRef"].get("name"):
+        if repo_data.get("defaultBranchRef") and repo_data["defaultBranchRef"].get(
+            "name"
+        ):
             default_branch = repo_data["defaultBranchRef"]["name"]
 
         return Repository(
@@ -214,31 +222,25 @@ def transform_github_response(api_response: Dict[str, Any]) -> Repository:
             owner=repo_data["owner"]["login"],
             url=repo_data["url"],
             stars=repo_data["stargazerCount"],
-            
             # Basic metadata
             created_at=created_at,
             pushed_at=repo_data.get("pushedAt"),
             updated_at=repo_data.get("updatedAt"),
-            
             # Language and technology
             primary_language=primary_language,
             languages=languages,
-            
             # Repository statistics
             fork_count=repo_data.get("forkCount", 0),
             watchers_count=repo_data.get("watchers", {}).get("totalCount", 0),
             open_issues_count=repo_data.get("issues", {}).get("totalCount", 0),
-            
             # Repository content and features
             description=repo_data.get("description"),
             homepage_url=repo_data.get("homepageUrl"),
             topics=topics,
-            
             # Repository settings
             license_name=license_name,
             default_branch=default_branch,
             visibility=repo_data.get("visibility", "public").lower(),
-            
             # Repository state flags
             is_fork=repo_data.get("isFork", False),
             is_archived=repo_data.get("isArchived", False),
@@ -249,7 +251,6 @@ def transform_github_response(api_response: Dict[str, Any]) -> Repository:
             has_wiki=repo_data.get("hasWikiEnabled", True),
             has_pages=repo_data.get("hasPages", False),
             has_downloads=repo_data.get("hasDownloads", True),
-            
             # Additional metrics
             size_kb=repo_data.get("diskUsage", 0),
             network_count=repo_data.get("networkCount", {}).get("totalCount", 0),
@@ -266,22 +267,28 @@ def create_repository_stats(
     return RepositoryStats(repo_id=repo.id, stars=repo.stars, fetched_date=fetched_date)
 
 
-def repository_to_repo_model(repository: Repository, alphabet_partition: Optional[str] = None):
+def repository_to_repo_model(
+    repository: Repository, alphabet_partition: Optional[str] = None
+):
     """Convert domain Repository to models.Repo for database operations."""
     from .models import Repo
-    
+
     # Parse timestamp fields
     pushed_at = None
     if repository.pushed_at:
         try:
             if isinstance(repository.pushed_at, str):
-                pushed_at_str = repository.pushed_at.replace("Z", "+00:00") 
+                pushed_at_str = repository.pushed_at.replace("Z", "+00:00")
                 pushed_at = datetime.fromisoformat(pushed_at_str).replace(tzinfo=None)
             elif isinstance(repository.pushed_at, datetime):
-                pushed_at = repository.pushed_at.replace(tzinfo=None) if repository.pushed_at.tzinfo else repository.pushed_at
+                pushed_at = (
+                    repository.pushed_at.replace(tzinfo=None)
+                    if repository.pushed_at.tzinfo
+                    else repository.pushed_at
+                )
         except (ValueError, TypeError):
             pushed_at = None
-    
+
     updated_at = None
     if repository.updated_at:
         try:
@@ -289,10 +296,14 @@ def repository_to_repo_model(repository: Repository, alphabet_partition: Optiona
                 updated_at_str = repository.updated_at.replace("Z", "+00:00")
                 updated_at = datetime.fromisoformat(updated_at_str).replace(tzinfo=None)
             elif isinstance(repository.updated_at, datetime):
-                updated_at = repository.updated_at.replace(tzinfo=None) if repository.updated_at.tzinfo else repository.updated_at
+                updated_at = (
+                    repository.updated_at.replace(tzinfo=None)
+                    if repository.updated_at.tzinfo
+                    else repository.updated_at
+                )
         except (ValueError, TypeError):
             updated_at = None
-    
+
     return Repo(
         # Core identity
         id=repository.id,
@@ -301,26 +312,22 @@ def repository_to_repo_model(repository: Repository, alphabet_partition: Optiona
         url=repository.url,
         created_at=repository.created_at or datetime.now(),
         alphabet_partition=alphabet_partition,
-        
         # Repository content and description
         description=repository.description,
         homepage_url=repository.homepage_url,
         topics=repository.topics,
         languages=repository.languages,
-        
         # Repository statistics
         watchers_count=repository.watchers_count,
         open_issues_count=repository.open_issues_count,
         subscribers_count=repository.subscribers_count,
         network_count=repository.network_count,
         size_kb=repository.size_kb,
-        
         # Repository configuration
         default_branch=repository.default_branch,
         visibility=repository.visibility,
         license_name=repository.license_name,
         primary_language=repository.primary_language,
-        
         # Repository state flags
         is_fork=repository.is_fork,
         is_archived=repository.is_archived,
@@ -331,7 +338,6 @@ def repository_to_repo_model(repository: Repository, alphabet_partition: Optiona
         has_wiki=repository.has_wiki,
         has_pages=repository.has_pages,
         has_downloads=repository.has_downloads,
-        
         # Timestamp fields
         pushed_at=pushed_at,
         updated_at=updated_at,
@@ -339,9 +345,9 @@ def repository_to_repo_model(repository: Repository, alphabet_partition: Optiona
 
 
 def repository_to_repo_stats_model(repository: Repository, fetched_date: date):
-    """Convert domain Repository to models.RepoStats for database operations.""" 
+    """Convert domain Repository to models.RepoStats for database operations."""
     from .models import RepoStats
-    
+
     return RepoStats(
         repo_id=repository.id,
         fetched_date=fetched_date,
