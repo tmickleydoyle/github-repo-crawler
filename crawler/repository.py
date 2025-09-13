@@ -45,7 +45,7 @@ class RepoRepository:
     )
     async def upsert_repos(self, repos: list[Repo]):
         """
-        Insert or update repository records.
+        Insert or update repository records with comprehensive metadata.
 
         Uses ON CONFLICT to handle duplicate repository IDs gracefully.
         Preserves existing alphabet_partition values when updating.
@@ -55,16 +55,53 @@ class RepoRepository:
             return
 
         sql = """
-        INSERT INTO repo (id, name, owner, url, created_at, alphabet_partition)
-          VALUES ($1, $2, $3, $4, $5, $6)
+        INSERT INTO repo (
+            id, name, owner, url, created_at, alphabet_partition,
+            description, homepage_url, topics, languages,
+            watchers_count, open_issues_count, subscribers_count, network_count, size_kb,
+            default_branch, visibility, license_name, primary_language,
+            is_fork, is_archived, is_disabled, is_template,
+            has_issues, has_projects, has_wiki, has_pages, has_downloads,
+            pushed_at, updated_at
+        ) VALUES (
+            $1, $2, $3, $4, $5, $6,
+            $7, $8, $9, $10,
+            $11, $12, $13, $14, $15,
+            $16, $17, $18, $19,
+            $20, $21, $22, $23,
+            $24, $25, $26, $27, $28,
+            $29, $30
+        )
         ON CONFLICT (id) DO UPDATE SET
-          name = EXCLUDED.name,
-          owner = EXCLUDED.owner,
-          url = EXCLUDED.url,
-          created_at = EXCLUDED.created_at,
-          alphabet_partition = COALESCE(
-            EXCLUDED.alphabet_partition, repo.alphabet_partition
-          )
+            name = EXCLUDED.name,
+            owner = EXCLUDED.owner,
+            url = EXCLUDED.url,
+            created_at = EXCLUDED.created_at,
+            alphabet_partition = COALESCE(EXCLUDED.alphabet_partition, repo.alphabet_partition),
+            description = EXCLUDED.description,
+            homepage_url = EXCLUDED.homepage_url,
+            topics = EXCLUDED.topics,
+            languages = EXCLUDED.languages,
+            watchers_count = EXCLUDED.watchers_count,
+            open_issues_count = EXCLUDED.open_issues_count,
+            subscribers_count = EXCLUDED.subscribers_count,
+            network_count = EXCLUDED.network_count,
+            size_kb = EXCLUDED.size_kb,
+            default_branch = EXCLUDED.default_branch,
+            visibility = EXCLUDED.visibility,
+            license_name = EXCLUDED.license_name,
+            primary_language = EXCLUDED.primary_language,
+            is_fork = EXCLUDED.is_fork,
+            is_archived = EXCLUDED.is_archived,
+            is_disabled = EXCLUDED.is_disabled,
+            is_template = EXCLUDED.is_template,
+            has_issues = EXCLUDED.has_issues,
+            has_projects = EXCLUDED.has_projects,
+            has_wiki = EXCLUDED.has_wiki,
+            has_pages = EXCLUDED.has_pages,
+            has_downloads = EXCLUDED.has_downloads,
+            pushed_at = EXCLUDED.pushed_at,
+            updated_at = EXCLUDED.updated_at
         """
 
         if not self.pool:
@@ -76,12 +113,21 @@ class RepoRepository:
                     sql,
                     [
                         (
-                            r.id,
-                            r.name,
-                            r.owner,
-                            r.url,
-                            r.created_at,
-                            r.alphabet_partition,
+                            # Core fields ($1-$6)
+                            r.id, r.name, r.owner, r.url, r.created_at, r.alphabet_partition,
+                            # Content fields ($7-$10)
+                            r.description, r.homepage_url, r.topics, r.languages,
+                            # Statistics fields ($11-$15)
+                            r.watchers_count, r.open_issues_count, r.subscribers_count, 
+                            r.network_count, r.size_kb,
+                            # Configuration fields ($16-$19)
+                            r.default_branch, r.visibility, r.license_name, r.primary_language,
+                            # State flags ($20-$23)
+                            r.is_fork, r.is_archived, r.is_disabled, r.is_template,
+                            # Feature flags ($24-$28)
+                            r.has_issues, r.has_projects, r.has_wiki, r.has_pages, r.has_downloads,
+                            # Timestamp fields ($29-$30)
+                            r.pushed_at, r.updated_at,
                         )
                         for r in repos
                     ],

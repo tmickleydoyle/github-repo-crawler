@@ -9,25 +9,60 @@ type safety for the crawler operations.
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 from datetime import date, datetime
 from dateutil import parser as date_parser
-from typing import Optional
+from typing import Optional, List
 
 
 class Repo(BaseModel):
     """
-    Represents a GitHub repository with core metadata.
+    Represents a GitHub repository with comprehensive metadata.
 
-    This model stores the essential information about a repository
+    This model stores enhanced information about a repository
     that is collected from the GitHub API and stored in the database.
     """
 
+    # Core identity fields
     id: int
     name: str
     owner: str
     url: str
     created_at: datetime
     alphabet_partition: Optional[str] = None
+    
+    # Repository content and description
+    description: Optional[str] = None
+    homepage_url: Optional[str] = None
+    topics: List[str] = Field(default_factory=list)
+    languages: List[str] = Field(default_factory=list)
+    
+    # Repository statistics
+    watchers_count: int = 0
+    open_issues_count: int = 0
+    subscribers_count: int = 0
+    network_count: int = 0
+    size_kb: int = 0
+    
+    # Repository configuration
+    default_branch: str = "main"
+    visibility: str = "public"
+    license_name: Optional[str] = None
+    primary_language: Optional[str] = None
+    
+    # Repository state flags
+    is_fork: bool = False
+    is_archived: bool = False
+    is_disabled: bool = False
+    is_template: bool = False
+    has_issues: bool = True
+    has_projects: bool = True
+    has_wiki: bool = True
+    has_pages: bool = False
+    has_downloads: bool = True
+    
+    # Timestamp fields
+    pushed_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
-    @field_validator("created_at", mode="before")
+    @field_validator("created_at", "pushed_at", "updated_at", mode="before")
     @classmethod
     def parse_datetime(cls, v):
         """
@@ -36,6 +71,8 @@ class Repo(BaseModel):
         Handles various datetime formats and ensures timezone-naive datetimes
         for consistent database storage.
         """
+        if v is None:
+            return v
         if isinstance(v, str):
             dt = date_parser.parse(v)
             return dt.replace(tzinfo=None) if dt.tzinfo else dt

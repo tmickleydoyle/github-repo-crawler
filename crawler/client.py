@@ -200,19 +200,75 @@ class GitHubClient:
                 name
                 url
                 createdAt
+                pushedAt
+                updatedAt
+                description
+                homepageUrl
+                
+                # Statistics
                 stargazerCount
                 forkCount
+                watchers {
+                  totalCount
+                }
+                issues(states: OPEN) {
+                  totalCount
+                }
+                
+                # Language information
                 primaryLanguage {
                   name
                 }
+                languages(first: 10, orderBy: {field: SIZE, direction: DESC}) {
+                  nodes {
+                    name
+                  }
+                }
+                
+                # Topics
+                repositoryTopics(first: 20) {
+                  nodes {
+                    topic {
+                      name
+                    }
+                  }
+                }
+                
+                # Owner information
                 owner {
                   login
                 }
+                
+                # License
                 licenseInfo {
                   name
                 }
-                pushedAt
-                updatedAt
+                
+                # Repository settings and flags
+                defaultBranchRef {
+                  name
+                }
+                visibility
+                isPrivate
+                isFork
+                isArchived
+                isDisabled
+                isTemplate
+                hasIssuesEnabled
+                hasProjectsEnabled
+                hasWikiEnabled
+                hasPages
+                hasDownloads
+                
+                # Size and network metrics
+                diskUsage
+                forkingAllowed
+                networkCount: forks {
+                  totalCount
+                }
+                subscribers: watchers {
+                  totalCount
+                }
               }
             }
           }
