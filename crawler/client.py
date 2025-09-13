@@ -21,7 +21,7 @@ from .domain import (
     SearchExhaustedError,
     ApiError,
 )
-from .search_strategy import SimpleSearchStrategy
+from .search_strategy import OptimizedSearchStrategy
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -49,7 +49,7 @@ class GitHubClient:
             "Accept": "application/vnd.github.v4+json",
             "User-Agent": "GitHub-Crawler/1.0",
         }
-        self.search_strategy = SimpleSearchStrategy()
+        self.search_strategy = OptimizedSearchStrategy()
         self._connector = None
         self._session = None
         logger.info(f"✅ GitHub client initialized with token length: {len(token)}")

@@ -8,26 +8,26 @@ These tests verify that:
 4. Query optimization produces valid GitHub search strings
 """
 
-from crawler.search_strategy import SimpleSearchStrategy
+from crawler.search_strategy import OptimizedSearchStrategy
 from crawler.domain import SearchQuery
 
 
-class TestSimpleSearchStrategy:
-    """Test SimpleSearchStrategy implementation."""
+class TestOptimizedSearchStrategy:
+    """Test OptimizedSearchStrategy implementation."""
 
     def setUp(self):
         """Set up test fixtures."""
-        self.strategy = SimpleSearchStrategy()
+        self.strategy = OptimizedSearchStrategy()
 
     def test_strategy_initialization(self):
         """Test strategy initializes correctly."""
-        strategy = SimpleSearchStrategy()
+        strategy = OptimizedSearchStrategy()
         assert strategy is not None
         assert hasattr(strategy, "generate_queries")
 
     def test_generate_queries_single_matrix(self):
         """Test query generation for single matrix job."""
-        strategy = SimpleSearchStrategy()
+        strategy = OptimizedSearchStrategy()
         queries = strategy.generate_queries(matrix_index=0, matrix_total=1)
 
         assert len(queries) > 0
@@ -39,7 +39,7 @@ class TestSimpleSearchStrategy:
 
     def test_generate_queries_multiple_matrix(self):
         """Test query generation for multiple matrix jobs."""
-        strategy = SimpleSearchStrategy()
+        strategy = OptimizedSearchStrategy()
 
         queries_0 = strategy.generate_queries(matrix_index=0, matrix_total=4)
         queries_1 = strategy.generate_queries(matrix_index=1, matrix_total=4)
@@ -58,7 +58,7 @@ class TestSimpleSearchStrategy:
 
     def test_matrix_partitioning_coverage(self):
         """Test that matrix partitioning covers different search spaces."""
-        strategy = SimpleSearchStrategy()
+        strategy = OptimizedSearchStrategy()
 
         all_languages = set()
         all_star_ranges = set()
@@ -86,7 +86,7 @@ class TestSimpleSearchStrategy:
 
     def test_query_string_validity(self):
         """Test that generated query strings are valid for GitHub."""
-        strategy = SimpleSearchStrategy()
+        strategy = OptimizedSearchStrategy()
         queries = strategy.generate_queries(matrix_index=0, matrix_total=1)
 
         for query in queries:
@@ -103,7 +103,7 @@ class TestSimpleSearchStrategy:
 
     def test_search_query_metadata(self):
         """Test that SearchQuery objects have proper metadata."""
-        strategy = SimpleSearchStrategy()
+        strategy = OptimizedSearchStrategy()
         queries = strategy.generate_queries(matrix_index=5, matrix_total=10)
 
         for query in queries:
@@ -115,7 +115,7 @@ class TestSimpleSearchStrategy:
 
     def test_edge_case_matrix_index(self):
         """Test edge cases for matrix indexing."""
-        strategy = SimpleSearchStrategy()
+        strategy = OptimizedSearchStrategy()
 
         queries = strategy.generate_queries(matrix_index=0, matrix_total=1)
         assert len(queries) > 0
@@ -128,7 +128,7 @@ class TestSimpleSearchStrategy:
 
     def test_query_diversity(self):
         """Test that strategy produces diverse queries."""
-        strategy = SimpleSearchStrategy()
+        strategy = OptimizedSearchStrategy()
         queries = strategy.generate_queries(matrix_index=0, matrix_total=1)
 
         query_strings = [q.query_string for q in queries]
