@@ -349,7 +349,7 @@ def repository_to_repo_stats_model(repository: Repository, fetched_date: date):
     from .models import RepoStats
 
     return RepoStats(
-        repo_id=repository.id,
+        repoId=repository.id,
         fetched_date=fetched_date,
         stars=repository.stars,
     )

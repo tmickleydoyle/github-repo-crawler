@@ -18,5 +18,8 @@ flake8
 mypy
 isort
 
+# Type stubs
+types-python-dateutil
+
 # Development dependencies
 pre-commit
