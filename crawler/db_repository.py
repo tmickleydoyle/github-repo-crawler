@@ -1,5 +1,7 @@
 """Repository pattern for centralized database operations."""
+
 from datetime import UTC, date, datetime
+from typing import Any
 
 import asyncpg
 from asyncpg import Connection, Pool
@@ -36,7 +38,7 @@ class DatabaseRepository:
             Configured asyncpg connection pool
         """
         # Optimize pool settings for high-concurrency matrix runs
-        concurrent_requests = getattr(self.settings, 'crawler_concurrent_requests', 10)
+        concurrent_requests = getattr(self.settings, "crawler_concurrent_requests", 10)
 
         return await asyncpg.create_pool(
             host=self.settings.database_host,
@@ -46,13 +48,15 @@ class DatabaseRepository:
             database=self.settings.database_name,
             # Scale pool size based on concurrency needs
             min_size=max(5, concurrent_requests // 2),
-            max_size=min(50, max(self.settings.database_pool_size, concurrent_requests * 2)),
+            max_size=min(
+                50, max(self.settings.database_pool_size, concurrent_requests * 2)
+            ),
             # Reduce timeout for faster failures and connection recycling
             command_timeout=30,
             # Add connection lifecycle management for better performance
             max_inactive_connection_lifetime=300,  # 5 minutes
             # Optimize for GitHub Actions environment
-            server_settings={'jit': 'off', 'shared_preload_libraries': ''}
+            server_settings={"jit": "off", "shared_preload_libraries": ""},
         )
 
     async def get_connection(self) -> Connection:
@@ -138,7 +142,7 @@ class DatabaseRepository:
         self,
         crawl_result: CrawlResult,
         matrix_index: int = 0,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Store repositories and their statistics.
 
         This is the main method for storing crawled data. It handles both
@@ -152,6 +156,7 @@ class DatabaseRepository:
             Dictionary with storage statistics
         """
         import time
+
         start_time = time.time()
         self.logger.info(
             "Starting repository storage",
@@ -236,7 +241,8 @@ class DatabaseRepository:
         created_at = self._parse_github_datetime(repo.created_at)
 
         # Upsert repository
-        await conn.execute("""
+        await conn.execute(
+            """
             INSERT INTO repo
             (id, name, owner, url, created_at, name_with_owner, alphabet_partition)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -255,7 +261,8 @@ class DatabaseRepository:
         )
 
         # Upsert statistics
-        await conn.execute("""
+        await conn.execute(
+            """
             INSERT INTO repo_stats (repo_id, fetched_date, stars)
             VALUES ($1, $2, $3)
             ON CONFLICT (repo_id, fetched_date) DO UPDATE SET
@@ -266,7 +273,9 @@ class DatabaseRepository:
             repo.stars,
         )
 
-    def _parse_github_datetime(self, dt_input) -> datetime | None:
+    def _parse_github_datetime(
+        self, dt_input: str | datetime | None
+    ) -> datetime | None:
         """Parse GitHub datetime to timezone-naive format for PostgreSQL.
 
         Args:
@@ -289,7 +298,7 @@ class DatabaseRepository:
 
         return None
 
-    async def get_repository_by_id(self, repo_id: int) -> dict | None:
+    async def get_repository_by_id(self, repo_id: int) -> dict[str, Any] | None:
         """Get a repository by its ID.
 
         Args:
@@ -313,7 +322,7 @@ class DatabaseRepository:
         repo_id: int,
         start_date: date | None = None,
         end_date: date | None = None,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Get star statistics for a repository.
 
         Args:
@@ -327,7 +336,7 @@ class DatabaseRepository:
         conn = await self.get_connection()
         try:
             query = "SELECT * FROM repo_stats WHERE repo_id = $1"
-            params = [repo_id]
+            params: list[int | date] = [repo_id]
 
             if start_date:
                 query += f" AND fetched_date >= ${len(params) + 1}"
@@ -358,7 +367,7 @@ class DatabaseRepository:
         finally:
             await self.release_connection(conn)
 
-    async def get_repositories_by_owner(self, owner: str) -> list[dict]:
+    async def get_repositories_by_owner(self, owner: str) -> list[dict[str, Any]]:
         """Get all repositories for a specific owner.
 
         Args:
@@ -403,13 +412,13 @@ class DatabaseRepository:
         finally:
             await self.release_connection(conn)
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> "DatabaseRepository":
         """Async context manager entry."""
         if not self.pool:
             self.pool = await self.create_pool()
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Async context manager exit."""
         if self.pool:
             await self.pool.close()

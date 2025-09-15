@@ -31,7 +31,7 @@ class Repository:
         """Full repository identifier in owner/name format."""
         return f"{self.owner}/{self.name}"
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Validate repository data after initialization."""
         if self.id <= 0:
             raise ValueError("Repository ID must be positive")
@@ -49,7 +49,7 @@ class RepositoryStats:
     stars: int
     fetched_date: datetime
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Validate stats data after initialization."""
         if self.repo_id <= 0:
             raise ValueError("Repository ID must be positive")
@@ -65,7 +65,7 @@ class SearchQuery:
     description: str
     expected_results: int | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Validate search query after initialization."""
         if not self.query_string.strip():
             raise ValueError("Query string cannot be empty")

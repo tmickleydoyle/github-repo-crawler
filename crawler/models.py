@@ -7,6 +7,7 @@ type safety for the crawler operations.
 """
 
 from datetime import date, datetime
+from typing import Any
 
 from dateutil import parser as date_parser
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -29,7 +30,7 @@ class Repo(BaseModel):
 
     @field_validator("created_at", mode="before")
     @classmethod
-    def parse_datetime(cls, v):
+    def parse_datetime(cls, v: Any) -> datetime:
         """
         Parse datetime strings from GitHub API into Python datetime objects.
 
@@ -39,7 +40,10 @@ class Repo(BaseModel):
         if isinstance(v, str):
             dt = date_parser.parse(v)
             return dt.replace(tzinfo=None) if dt.tzinfo else dt
-        return v
+        elif isinstance(v, datetime):
+            return v
+        else:
+            raise ValueError(f"Invalid datetime value: {v}")
 
 
 class RepoStats(BaseModel):

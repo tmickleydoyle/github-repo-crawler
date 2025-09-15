@@ -71,12 +71,14 @@ class TestGitHubClientContextManager:
         """Test context manager cleans up resources."""
         client = GitHubClient(token="valid_token_123")
 
-        with patch.object(
-            aiohttp.ClientSession, "close", new_callable=AsyncMock
-        ) as mock_session_close, patch.object(
-            aiohttp.TCPConnector, "close", new_callable=AsyncMock
-        ) as mock_connector_close:
-
+        with (
+            patch.object(
+                aiohttp.ClientSession, "close", new_callable=AsyncMock
+            ) as mock_session_close,
+            patch.object(
+                aiohttp.TCPConnector, "close", new_callable=AsyncMock
+            ) as mock_connector_close,
+        ):
             async with client:
                 pass
 
@@ -163,8 +165,9 @@ class TestGitHubClientRequestHandling:
         client = GitHubClient(token="valid_token_123")
 
         async with client:
-            with patch.object(client._session, "post") as mock_post, patch(
-                "asyncio.sleep", new_callable=AsyncMock
+            with (
+                patch.object(client._session, "post") as mock_post,
+                patch("asyncio.sleep", new_callable=AsyncMock),
             ):
                 mock_response = AsyncMock()
                 mock_response.status = 403
@@ -186,10 +189,11 @@ class TestGitHubClientRequestHandling:
         mock_response = AsyncMock()
         mock_response.status = 401
 
-        with patch.object(client, "_session") as mock_session:
-            mock_session.post.return_value.__aenter__.return_value = mock_response
+        async with client:
+            with patch.object(client._session, "post") as mock_post:
+                mock_post.return_value.__aenter__.return_value = mock_response
+                mock_post.return_value.__aexit__.return_value = None
 
-            async with client:
                 with pytest.raises(AuthenticationError):
                     await client._make_graphql_request({"query": "test"})
 

@@ -55,11 +55,11 @@ class GitHubClient:
             "User-Agent": "GitHub-Crawler/1.0",
         }
         self.search_strategy = SimpleSearchStrategy()
-        self._connector = None
-        self._session = None
+        self._connector: aiohttp.TCPConnector | None = None
+        self._session: aiohttp.ClientSession | None = None
         logger.info(f"✅ GitHub client initialized with token length: {len(token)}")
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> "GitHubClient":
         """Async context manager entry."""
         self._connector = aiohttp.TCPConnector(
             limit=100,
@@ -74,7 +74,7 @@ class GitHubClient:
         )
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Async context manager exit."""
         if self._session:
             await self._session.close()
@@ -148,7 +148,7 @@ class GitHubClient:
                     if remaining < 10:
                         await asyncio.sleep(0.5)
 
-                    response_data = await resp.json()
+                    response_data: dict[str, Any] = await resp.json()
 
                     if "errors" in response_data:
                         errors = response_data["errors"]
@@ -167,7 +167,7 @@ class GitHubClient:
 
                         if response_data.get("data"):
                             logger.warning(
-                                f"⚠️ GraphQL errors (continuing): " f"{error_messages}"
+                                f"⚠️ GraphQL errors (continuing): {error_messages}"
                             )
                         else:
                             raise ApiError(f"GraphQL query failed: {error_messages}")
@@ -340,9 +340,9 @@ class GitHubClient:
         self,
         search_query: SearchQuery,
         repositories: list[Repository],
-        repository_ids: set,
+        repository_ids: set[int],
         target_repos: int,
-    ):
+    ) -> None:
         """Process a single search query with pagination."""
         after_cursor = None
         pages_processed = 0
