@@ -298,10 +298,45 @@ class GitHubClient:
             matrix_index, matrix_total
         )
 
-        # Use concurrent processing for 3-5x speed improvement
-        await self._crawl_queries_concurrent(
-            search_queries, repositories, repository_ids, target_repos
-        )
+        # Use concurrent processing with fallback for compatibility
+        try:
+            logger.info("🚀 Attempting concurrent query processing...")
+            await self._crawl_queries_concurrent(
+                search_queries, repositories, repository_ids, target_repos
+            )
+            logger.info(f"✅ Concurrent processing completed: {len(repositories)} repositories")
+        except Exception as e:
+            logger.warning(f"⚠️ Concurrent processing failed, falling back to sequential: {e}")
+            # Clear any partial results and retry sequentially
+            repositories.clear()
+            repository_ids.clear()
+
+            # Fallback to sequential processing
+            for query_idx, search_query in enumerate(search_queries):
+                if len(repositories) >= target_repos:
+                    break
+
+                logger.info(
+                    f"🔍 Query {query_idx + 1}/{len(search_queries)}: "
+                    f"{search_query.query_string}"
+                )
+
+                try:
+                    await self._crawl_query(
+                        search_query, repositories, repository_ids, target_repos
+                    )
+                except SearchExhaustedError:
+                    logger.warning(
+                        f"⚠️ Search exhausted for query: {search_query.query_string}"
+                    )
+                    continue
+                except Exception as query_error:
+                    logger.error(
+                        f"❌ Error processing query {search_query.query_string}: {query_error}"
+                    )
+                    continue
+
+            logger.info(f"✅ Sequential fallback completed: {len(repositories)} repositories")
 
         final_repositories = repositories[:target_repos]
 

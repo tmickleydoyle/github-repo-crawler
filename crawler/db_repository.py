@@ -168,13 +168,19 @@ class DatabaseRepository:
                 "total": len(crawl_result.repositories),
             }
 
+            if not crawl_result.repositories:
+                self.logger.warning("No repositories to store - crawl result is empty!")
+                return stats
+
             async with conn.transaction():
                 # Use batch operations for 50-80% performance improvement
+                self.logger.info(f"Storing {len(crawl_result.repositories)} repositories in batch")
                 await self._store_repositories_batch(
                     conn, crawl_result.repositories, matrix_index, current_date
                 )
                 stats["successful"] = len(crawl_result.repositories)
                 stats["failed"] = 0
+                self.logger.info(f"✅ Successfully stored {stats['successful']} repositories")
 
             duration = time.time() - start_time
             self.logger.info(
