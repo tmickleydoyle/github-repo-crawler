@@ -1,6 +1,7 @@
 """Repository pattern for centralized database operations."""
 
 from datetime import UTC, date, datetime
+from typing import Any
 
 import asyncpg
 from asyncpg import Connection, Pool
@@ -141,7 +142,7 @@ class DatabaseRepository:
         self,
         crawl_result: CrawlResult,
         matrix_index: int = 0,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Store repositories and their statistics.
 
         This is the main method for storing crawled data. It handles both
@@ -272,7 +273,9 @@ class DatabaseRepository:
             repo.stars,
         )
 
-    def _parse_github_datetime(self, dt_input) -> datetime | None:
+    def _parse_github_datetime(
+        self, dt_input: str | datetime | None
+    ) -> datetime | None:
         """Parse GitHub datetime to timezone-naive format for PostgreSQL.
 
         Args:
@@ -295,7 +298,7 @@ class DatabaseRepository:
 
         return None
 
-    async def get_repository_by_id(self, repo_id: int) -> dict | None:
+    async def get_repository_by_id(self, repo_id: int) -> dict[str, Any] | None:
         """Get a repository by its ID.
 
         Args:
@@ -319,7 +322,7 @@ class DatabaseRepository:
         repo_id: int,
         start_date: date | None = None,
         end_date: date | None = None,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Get star statistics for a repository.
 
         Args:
@@ -333,7 +336,7 @@ class DatabaseRepository:
         conn = await self.get_connection()
         try:
             query = "SELECT * FROM repo_stats WHERE repo_id = $1"
-            params = [repo_id]
+            params: list[int | date] = [repo_id]
 
             if start_date:
                 query += f" AND fetched_date >= ${len(params) + 1}"
@@ -364,7 +367,7 @@ class DatabaseRepository:
         finally:
             await self.release_connection(conn)
 
-    async def get_repositories_by_owner(self, owner: str) -> list[dict]:
+    async def get_repositories_by_owner(self, owner: str) -> list[dict[str, Any]]:
         """Get all repositories for a specific owner.
 
         Args:
@@ -409,13 +412,13 @@ class DatabaseRepository:
         finally:
             await self.release_connection(conn)
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> "DatabaseRepository":
         """Async context manager entry."""
         if not self.pool:
             self.pool = await self.create_pool()
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Async context manager exit."""
         if self.pool:
             await self.pool.close()

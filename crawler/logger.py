@@ -2,8 +2,8 @@
 
 import logging
 import sys
-from typing import Any, Dict, List, Literal, Optional, Union
 import types
+from typing import Any, Literal
 
 import structlog
 from structlog.processors import CallsiteParameter
@@ -31,7 +31,7 @@ def setup_logging(
     )
 
     # Build processor chain
-    processors: List[Any] = [
+    processors: list[Any] = [
         structlog.stdlib.filter_by_level,
         structlog.stdlib.add_logger_name,
         structlog.stdlib.add_log_level,
@@ -142,7 +142,7 @@ class LogContext:
         self.logger = logger
         self.operation = operation
         self.context = context
-        self.start_time: Optional[float] = None
+        self.start_time: float | None = None
 
     def __enter__(self) -> "LogContext":
         """Enter context and log operation start."""
@@ -158,17 +158,14 @@ class LogContext:
 
     def __exit__(
         self,
-        exc_type: Optional[type],
-        exc_val: Optional[Exception],
-        exc_tb: Optional[types.TracebackType],
+        exc_type: type | None,
+        exc_val: Exception | None,
+        exc_tb: types.TracebackType | None,
     ) -> Literal[False]:
         """Exit context and log operation completion."""
         import time
 
-        if self.start_time is not None:
-            duration = time.time() - self.start_time
-        else:
-            duration = 0.0
+        duration = time.time() - self.start_time if self.start_time is not None else 0.0
 
         if exc_type is None:
             self.logger.info(
@@ -209,17 +206,14 @@ class LogContext:
 
     async def __aexit__(
         self,
-        exc_type: Optional[type],
-        exc_val: Optional[Exception],
-        exc_tb: Optional[types.TracebackType],
+        exc_type: type | None,
+        exc_val: Exception | None,
+        exc_tb: types.TracebackType | None,
     ) -> Literal[False]:
         """Async exit context and log operation completion."""
         import time
 
-        if self.start_time is not None:
-            duration = time.time() - self.start_time
-        else:
-            duration = 0.0
+        duration = time.time() - self.start_time if self.start_time is not None else 0.0
 
         if exc_type is None:
             self.logger.info(

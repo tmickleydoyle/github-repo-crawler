@@ -2,7 +2,6 @@
 
 import argparse
 import asyncio
-from typing import Any
 
 from .client import GitHubClient
 from .config import get_settings
@@ -46,7 +45,7 @@ async def run() -> None:
     - Separation of concerns
     - Centralized database operations
     """
-    args = parse_args()  # type: ignore
+    args = parse_args()
     settings = get_settings()
 
     # Setup structured logging (CLAUDE.md: "Use structured logging")
@@ -101,8 +100,8 @@ async def run() -> None:
 
 def main() -> None:
     """Main entry point."""
-    asyncio.run(run())  # type: ignore
+    asyncio.run(run())
 
 
 if __name__ == "__main__":
-    main()  # type: ignore
+    main()
