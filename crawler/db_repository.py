@@ -82,48 +82,48 @@ class DatabaseRepository:
         self.logger.info("Starting schema initialization")
         conn = await self.get_connection()
         try:
-                # Create main repository table
-                await conn.execute("""
-                    CREATE TABLE IF NOT EXISTS repo (
-                        id BIGINT PRIMARY KEY,
-                        name TEXT NOT NULL,
-                        owner TEXT NOT NULL,
-                        url TEXT NOT NULL,
-                        created_at TIMESTAMP,
-                        alphabet_partition VARCHAR(100),
-                        name_with_owner TEXT,
-                        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
+            # Create main repository table
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS repo (
+                    id BIGINT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    owner TEXT NOT NULL,
+                    url TEXT NOT NULL,
+                    created_at TIMESTAMP,
+                    alphabet_partition VARCHAR(100),
+                    name_with_owner TEXT,
+                    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
 
-                # Create statistics table
-                await conn.execute("""
-                    CREATE TABLE IF NOT EXISTS repo_stats (
-                        repo_id BIGINT NOT NULL REFERENCES repo(id) ON DELETE CASCADE,
-                        fetched_date DATE NOT NULL,
-                        stars INT NOT NULL,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        PRIMARY KEY(repo_id, fetched_date)
-                    )
-                """)
+            # Create statistics table
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS repo_stats (
+                    repo_id BIGINT NOT NULL REFERENCES repo(id) ON DELETE CASCADE,
+                    fetched_date DATE NOT NULL,
+                    stars INT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY(repo_id, fetched_date)
+                )
+            """)
 
-                # Create indexes for performance
-                indexes = [
-                    "CREATE INDEX IF NOT EXISTS idx_repo_stars ON repo (id)",
-                    "CREATE INDEX IF NOT EXISTS idx_repo_name_with_owner ON repo (name_with_owner)",
-                    "CREATE INDEX IF NOT EXISTS idx_repo_alphabet_partition ON repo (alphabet_partition)",
-                    "CREATE INDEX IF NOT EXISTS idx_repo_owner ON repo (owner)",
-                    "CREATE INDEX IF NOT EXISTS idx_repo_stats_date ON repo_stats (fetched_date)",
-                    "CREATE INDEX IF NOT EXISTS idx_repo_stats_repo_id ON repo_stats (repo_id)",
-                ]
+            # Create indexes for performance
+            indexes = [
+                "CREATE INDEX IF NOT EXISTS idx_repo_stars ON repo (id)",
+                "CREATE INDEX IF NOT EXISTS idx_repo_name_with_owner ON repo (name_with_owner)",
+                "CREATE INDEX IF NOT EXISTS idx_repo_alphabet_partition ON repo (alphabet_partition)",
+                "CREATE INDEX IF NOT EXISTS idx_repo_owner ON repo (owner)",
+                "CREATE INDEX IF NOT EXISTS idx_repo_stats_date ON repo_stats (fetched_date)",
+                "CREATE INDEX IF NOT EXISTS idx_repo_stats_repo_id ON repo_stats (repo_id)",
+            ]
 
-                for index_sql in indexes:
-                    await conn.execute(index_sql)
+            for index_sql in indexes:
+                await conn.execute(index_sql)
 
-                self.logger.info("Database schema initialized successfully")
+            self.logger.info("Database schema initialized successfully")
 
-            finally:
-                await self.release_connection(conn)
+        finally:
+            await self.release_connection(conn)
 
     async def store_repositories(
         self,
@@ -152,43 +152,43 @@ class DatabaseRepository:
 
         conn = await self.get_connection()
         try:
-                current_date = datetime.now(timezone.utc).date()
-                stats = {
-                    "successful": 0,
-                    "failed": 0,
-                    "total": len(crawl_result.repositories),
-                }
+            current_date = datetime.now(timezone.utc).date()
+            stats = {
+                "successful": 0,
+                "failed": 0,
+                "total": len(crawl_result.repositories),
+            }
 
-                async with conn.transaction():
-                    for repo in crawl_result.repositories:
-                        try:
-                            await self._store_single_repository(
-                                conn, repo, matrix_index, current_date
-                            )
-                            stats["successful"] += 1
-                        except Exception as e:
-                            stats["failed"] += 1
-                            self.logger.error(
-                                "Failed to store repository",
-                                repo_id=repo.id,
-                                repo_name=repo.name,
-                                error=str(e),
-                            )
+            async with conn.transaction():
+                for repo in crawl_result.repositories:
+                    try:
+                        await self._store_single_repository(
+                            conn, repo, matrix_index, current_date
+                        )
+                        stats["successful"] += 1
+                    except Exception as e:
+                        stats["failed"] += 1
+                        self.logger.error(
+                            "Failed to store repository",
+                            repo_id=repo.id,
+                            repo_name=repo.name,
+                            error=str(e),
+                        )
 
-                duration = time.time() - start_time
-                self.logger.info(
-                    "Repository storage completed",
-                    **stats,
-                    unique_owners=crawl_result.unique_owners,
-                    total_stars=crawl_result.total_stars,
-                    average_stars=round(crawl_result.average_stars, 1),
-                    duration_seconds=round(duration, 3),
-                )
+            duration = time.time() - start_time
+            self.logger.info(
+                "Repository storage completed",
+                **stats,
+                unique_owners=crawl_result.unique_owners,
+                total_stars=crawl_result.total_stars,
+                average_stars=round(crawl_result.average_stars, 1),
+                duration_seconds=round(duration, 3),
+            )
 
-                return stats
+            return stats
 
-            finally:
-                await self.release_connection(conn)
+        finally:
+            await self.release_connection(conn)
 
     async def _store_single_repository(
         self,
