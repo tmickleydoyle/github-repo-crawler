@@ -173,14 +173,27 @@ class DatabaseRepository:
                 return stats
 
             async with conn.transaction():
-                # Use batch operations for 50-80% performance improvement
-                self.logger.info(f"Storing {len(crawl_result.repositories)} repositories in batch")
-                await self._store_repositories_batch(
-                    conn, crawl_result.repositories, matrix_index, current_date
-                )
-                stats["successful"] = len(crawl_result.repositories)
-                stats["failed"] = 0
-                self.logger.info(f"✅ Successfully stored {stats['successful']} repositories")
+                # Temporarily revert to individual inserts to debug the issue
+                self.logger.info(f"Storing {len(crawl_result.repositories)} repositories individually for debugging")
+                for repo in crawl_result.repositories:
+                    try:
+                        await self._store_single_repository(
+                            conn, repo, matrix_index, current_date
+                        )
+                        stats["successful"] += 1
+                        self.logger.debug(f"✅ Stored repo {repo.id}: {repo.name_with_owner}")
+                    except Exception as e:
+                        stats["failed"] += 1
+                        self.logger.error(
+                            "Failed to store repository",
+                            repo_id=repo.id,
+                            repo_name=repo.name,
+                            error=str(e),
+                        )
+                        # Re-raise to see the actual error
+                        raise
+
+                self.logger.info(f"✅ Successfully stored {stats['successful']} repositories, failed: {stats['failed']}")
 
             duration = time.time() - start_time
             self.logger.info(
