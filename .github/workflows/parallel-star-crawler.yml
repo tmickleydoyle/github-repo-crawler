@@ -411,12 +411,40 @@ jobs:
           TOTAL_REPO_ROWS=0
           TOTAL_STATS_ROWS=0
           SKIPPED_DUPLICATES=0
+          CSV_FILES_PROCESSED=0
+          EMPTY_CSV_FILES=0
+
+          echo "🔍 Starting CSV file aggregation..."
+          echo "📂 Scanning for job result directories..."
 
           # Import CSV files using regular tables to handle duplicates properly
           for csv_dir in ./job-results/crawler-job-*; do
             if [ -d "$csv_dir" ]; then
               echo "Processing CSV files from $csv_dir"
+              
+              # Check if directory has any CSV files
+              if ! ls "$csv_dir"/*.csv 1> /dev/null 2>&1; then
+                echo "⚠️ WARNING: No CSV files found in $csv_dir"
+                continue
+              fi
+              
               for csv_file in "$csv_dir"/*.csv; do
+                # Check if file exists and is readable
+                if [ ! -f "$csv_file" ] || [ ! -r "$csv_file" ]; then
+                  echo "⚠️ WARNING: CSV file $csv_file is not readable or does not exist"
+                  continue
+                fi
+                
+                # Check if file has content beyond header
+                FILE_LINE_COUNT=$(wc -l < "$csv_file")
+                if [ "$FILE_LINE_COUNT" -le 1 ]; then
+                  echo "⚠️ WARNING: CSV file $csv_file appears to be empty (only header or no content): ${FILE_LINE_COUNT} lines"
+                  EMPTY_CSV_FILES=$((EMPTY_CSV_FILES + 1))
+                  continue
+                fi
+                
+                echo "✅ Processing CSV file: $csv_file (${FILE_LINE_COUNT} lines)"
+                CSV_FILES_PROCESSED=$((CSV_FILES_PROCESSED + 1))
                 if [[ "$csv_file" == *"repo_"* ]] && [[ "$csv_file" != *"repo_stats_"* ]]; then
                   echo "Importing repo data from $csv_file"
                   # Count rows before import
@@ -486,10 +514,20 @@ jobs:
 
           echo "✅ Data aggregation completed"
           echo "📊 Aggregation Summary:"
+          echo "  - CSV files processed: ${CSV_FILES_PROCESSED}"
+          echo "  - Empty CSV files skipped: ${EMPTY_CSV_FILES}"
           echo "  - Total rows processed: ${TOTAL_REPO_ROWS} repos, ${TOTAL_STATS_ROWS} stats"
           echo "  - Final unique records: ${FINAL_REPO_COUNT} repos, ${FINAL_STATS_COUNT} stats"
           echo "  - Duplicate repos skipped: ${SKIPPED_DUPLICATES}"
-          echo "  - Deduplication rate: $(( (SKIPPED_DUPLICATES * 100) / TOTAL_REPO_ROWS ))% overlap between jobs"
+          # Safe division to avoid division by zero error
+          if [ "${TOTAL_REPO_ROWS}" -gt 0 ]; then
+            echo "  - Deduplication rate: $(( (SKIPPED_DUPLICATES * 100) / TOTAL_REPO_ROWS ))% overlap between jobs"
+          else
+            echo "  - Deduplication rate: N/A (no data processed)"
+            if [ "${EMPTY_CSV_FILES}" -gt 0 ]; then
+              echo "  ⚠️ NOTE: All CSV files were empty. This suggests crawler jobs may have failed or found no repositories."
+            fi
+          fi
 
       - name: Create final export
         run: |
