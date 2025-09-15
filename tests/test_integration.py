@@ -8,12 +8,14 @@ These tests verify that:
 4. Performance is acceptable under load
 """
 
-import pytest
 import os
 from datetime import datetime
-from unittest.mock import patch, AsyncMock
+from unittest.mock import AsyncMock, patch
+
+import pytest
+
+from crawler.domain import CrawlResult, Repository
 from crawler.main import run, store_repositories
-from crawler.domain import Repository, CrawlResult
 
 
 class TestCrawlerIntegration:
@@ -64,19 +66,18 @@ class TestCrawlerIntegration:
 
                 with patch(
                     "crawler.main.store_repositories", new_callable=AsyncMock
-                ) as mock_store:
-                    with patch("crawler.main.parse_args") as mock_args:
-                        mock_args.return_value.repos = 1000
-                        mock_args.return_value.matrix_total = 1
-                        mock_args.return_value.matrix_index = 0
+                ) as mock_store, patch("crawler.main.parse_args") as mock_args:
+                    mock_args.return_value.repos = 1000
+                    mock_args.return_value.matrix_total = 1
+                    mock_args.return_value.matrix_index = 0
 
-                        await run()
+                    await run()
 
-                        mock_client.test_connection.assert_called_once()
-                        mock_client.crawl.assert_called_once_with(
-                            matrix_total=1, matrix_index=0
-                        )
-                        mock_store.assert_called_once_with(mock_crawl_result, 0)
+                    mock_client.test_connection.assert_called_once()
+                    mock_client.crawl.assert_called_once_with(
+                        matrix_total=1, matrix_index=0
+                    )
+                    mock_store.assert_called_once_with(mock_crawl_result, 0)
 
     @pytest.mark.asyncio
     @pytest.mark.integration
