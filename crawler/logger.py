@@ -1,7 +1,7 @@
 """Structured logging configuration using structlog."""
 import logging
 import sys
-from typing import Any, Dict
+from typing import Any
 
 import structlog
 from structlog.processors import CallsiteParameter
@@ -94,9 +94,9 @@ def get_logger(name: str = __name__, **kwargs: Any) -> structlog.BoundLogger:
 def log_operation(
     operation: str,
     success: bool,
-    duration: float = None,
+    duration: float | None = None,
     **extra: Any,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Create a structured log entry for an operation.
 
     Args:

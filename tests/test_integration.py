@@ -55,8 +55,8 @@ class TestCrawlerIntegration:
                 duration_seconds=1.5,
             )
 
-            with patch("crawler.main.GitHubClient") as MockClient:
-                mock_client = MockClient.return_value
+            with patch("crawler.main.GitHubClient") as mock_client_class:
+                mock_client = mock_client_class.return_value
                 mock_client.__aenter__ = AsyncMock(return_value=mock_client)
                 mock_client.__aexit__ = AsyncMock(return_value=None)
                 mock_client.test_connection = AsyncMock(return_value=True)
@@ -82,22 +82,24 @@ class TestCrawlerIntegration:
     @pytest.mark.integration
     async def test_crawl_with_connection_failure(self):
         """Test crawl behavior when GitHub connection fails."""
-        with patch.dict(os.environ, {"GITHUB_TOKEN": "test_token_123"}):
-            with patch("crawler.main.GitHubClient") as MockClient:
-                mock_client = MockClient.return_value
-                mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-                mock_client.__aexit__ = AsyncMock(return_value=None)
-                mock_client.test_connection = AsyncMock(return_value=False)
+        with (
+            patch.dict(os.environ, {"GITHUB_TOKEN": "test_token_123"}),
+            patch("crawler.main.GitHubClient") as mock_client_class,
+        ):
+            mock_client = mock_client_class.return_value
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=None)
+            mock_client.test_connection = AsyncMock(return_value=False)
 
-                with patch("crawler.main.parse_args") as mock_args:
-                    mock_args.return_value.repos = 1000
-                    mock_args.return_value.matrix_total = 1
-                    mock_args.return_value.matrix_index = 0
+            with patch("crawler.main.parse_args") as mock_args:
+                mock_args.return_value.repos = 1000
+                mock_args.return_value.matrix_total = 1
+                mock_args.return_value.matrix_index = 0
 
-                    await run()
+                await run()
 
-                    mock_client.test_connection.assert_called_once()
-                    mock_client.crawl.assert_not_called()
+                mock_client.test_connection.assert_called_once()
+                mock_client.crawl.assert_not_called()
 
     @pytest.mark.asyncio
     @pytest.mark.integration
@@ -145,17 +147,19 @@ class TestErrorHandling:
     @pytest.mark.integration
     async def test_client_initialization_error(self):
         """Test handling of client initialization errors."""
-        with patch.dict(os.environ, {"GITHUB_TOKEN": ""}):
-            with patch("crawler.main.GitHubClient") as MockClient:
-                MockClient.side_effect = ValueError("GitHub token is required")
+        with (
+            patch.dict(os.environ, {"GITHUB_TOKEN": ""}),
+            patch("crawler.main.GitHubClient") as mock_client_class,
+        ):
+            mock_client_class.side_effect = ValueError("GitHub token is required")
 
-                with patch("crawler.main.parse_args") as mock_args:
-                    mock_args.return_value.repos = 1000
-                    mock_args.return_value.matrix_total = 1
-                    mock_args.return_value.matrix_index = 0
+            with patch("crawler.main.parse_args") as mock_args:
+                mock_args.return_value.repos = 1000
+                mock_args.return_value.matrix_total = 1
+                mock_args.return_value.matrix_index = 0
 
-                    with pytest.raises(ValueError):
-                        await run()
+                with pytest.raises(ValueError):
+                    await run()
 
     @pytest.mark.asyncio
     @pytest.mark.integration

@@ -8,9 +8,10 @@ This file configures:
 4. Mock configurations
 """
 
-import pytest
 import asyncio
 from unittest.mock import Mock
+
+import pytest
 
 
 def pytest_configure(config):

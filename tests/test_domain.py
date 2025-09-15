@@ -8,19 +8,21 @@ These tests verify that:
 4. Repository statistics are calculated correctly
 """
 
-import pytest
 from datetime import datetime
+
+import pytest
+
 from crawler.domain import (
+    ApiError,
+    AuthenticationError,
+    CrawlResult,
+    RateLimitError,
     Repository,
     RepositoryStats,
-    SearchQuery,
-    CrawlResult,
-    transform_github_response,
-    create_repository_stats,
-    RateLimitError,
-    AuthenticationError,
     SearchExhaustedError,
-    ApiError,
+    SearchQuery,
+    create_repository_stats,
+    transform_github_response,
 )
 
 

@@ -9,15 +9,17 @@ These tests verify that:
 5. Rate limiting is respected
 """
 
-import pytest
-import aiohttp
 from unittest.mock import AsyncMock, Mock, patch
+
+import aiohttp
+import pytest
+
 from crawler.client import GitHubClient
 from crawler.domain import (
-    SearchQuery,
-    RateLimitError,
-    AuthenticationError,
     ApiError,
+    AuthenticationError,
+    RateLimitError,
+    SearchQuery,
 )
 
 

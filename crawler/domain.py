@@ -7,7 +7,7 @@ from external API concerns, implementing an anti-corruption layer.
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -19,12 +19,12 @@ class Repository:
     owner: str
     url: str
     stars: int
-    created_at: Optional[datetime] = None
-    pushed_at: Optional[str] = None
-    updated_at: Optional[str] = None
-    primary_language: Optional[str] = None
+    created_at: datetime | None = None
+    pushed_at: str | None = None
+    updated_at: str | None = None
+    primary_language: str | None = None
     fork_count: int = 0
-    license_name: Optional[str] = None
+    license_name: str | None = None
 
     @property
     def name_with_owner(self) -> str:
@@ -63,7 +63,7 @@ class SearchQuery:
 
     query_string: str
     description: str
-    expected_results: Optional[int] = None
+    expected_results: int | None = None
 
     def __post_init__(self):
         """Validate search query after initialization."""
@@ -99,11 +99,11 @@ class SearchExhaustedError(ApiError):
 class CrawlResult:
     """Immutable result of a crawling operation."""
 
-    repositories: List[Repository] = field(default_factory=list)
+    repositories: list[Repository] = field(default_factory=list)
     total_found: int = 0
-    query_used: Optional[str] = None
+    query_used: str | None = None
     duration_seconds: float = 0.0
-    errors: List[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
 
     @property
     def success_rate(self) -> float:
@@ -115,7 +115,7 @@ class CrawlResult:
     @property
     def unique_owners(self) -> int:
         """Count unique repository owners."""
-        return len(set(repo.owner for repo in self.repositories))
+        return len({repo.owner for repo in self.repositories})
 
     @property
     def total_stars(self) -> int:
@@ -130,7 +130,7 @@ class CrawlResult:
         return self.total_stars / len(self.repositories)
 
 
-def transform_github_response(api_response: Dict[str, Any]) -> Repository:
+def transform_github_response(api_response: dict[str, Any]) -> Repository:
     """
     Transform GitHub API response into domain Repository object.
 

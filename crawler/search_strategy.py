@@ -5,8 +5,8 @@ This module provides a simplified, more effective approach to discovering
 diverse GitHub repositories while respecting API limits.
 """
 
-from typing import List
 from dataclasses import dataclass
+
 from .domain import SearchQuery
 
 
@@ -16,7 +16,7 @@ class SearchStrategy:
 
     def generate_queries(
         self, matrix_index: int = 0, matrix_total: int = 1
-    ) -> List[SearchQuery]:
+    ) -> list[SearchQuery]:
         """
         Generate optimized search queries for discovering diverse repositories.
 
@@ -31,7 +31,7 @@ class SearchStrategy:
 
         return self._get_partitioned_queries(matrix_index, matrix_total)
 
-    def _get_basic_queries(self) -> List[SearchQuery]:
+    def _get_basic_queries(self) -> list[SearchQuery]:
         """Generate basic queries for single-job execution."""
         return [
             SearchQuery(
@@ -58,7 +58,7 @@ class SearchStrategy:
 
     def _get_partitioned_queries(
         self, matrix_index: int, matrix_total: int
-    ) -> List[SearchQuery]:
+    ) -> list[SearchQuery]:
         """Generate queries partitioned across matrix jobs with better distribution."""
 
         languages = [
@@ -269,7 +269,7 @@ class SimpleSearchStrategy(SearchStrategy):
 
     def generate_queries(
         self, matrix_index: int = 0, matrix_total: int = 1
-    ) -> List[SearchQuery]:
+    ) -> list[SearchQuery]:
         """Generate ultra-partitioned search queries optimized for maximum
         repository discovery."""
 
@@ -348,86 +348,30 @@ class SimpleSearchStrategy(SearchStrategy):
         ]
 
         star_ranges = [
-            "0..0",
-            "1..1",
-            "2..2",
-            "3..3",
-            "4..4",
-            "5..5",
-            "6..6",
-            "7..7",
-            "8..8",
-            "9..9",
-            "10..10",
-            "11..11",
-            "12..12",
-            "13..13",
-            "14..14",
-            "15..15",
-            "16..16",
-            "17..17",
-            "18..18",
-            "19..19",
-            "20..20",
-            "21..21",
-            "22..22",
-            "23..23",
-            "24..24",
-            "25..25",
-            "26..27",
-            "28..29",
-            "30..31",
-            "32..34",
-            "35..37",
-            "38..41",
-            "42..45",
-            "46..50",
-            "51..55",
-            "56..62",
-            "63..70",
-            "71..79",
-            "80..89",
-            "90..100",
-            "101..115",
-            "116..132",
-            "133..152",
-            "153..175",
-            "176..202",
-            "203..233",
-            "234..270",
-            "271..313",
-            "314..364",
-            "365..425",
-            "426..497",
-            "498..582",
-            "583..682",
-            "683..800",
-            "801..938",
-            "939..1100",
-            "1101..1290",
-            "1291..1515",
-            "1516..1780",
-            "1781..2090",
-            "2091..2457",
-            "2458..2890",
-            "2891..3400",
-            "3401..4000",
-            "4001..4700",
-            "4701..5520",
-            "5521..6490",
-            "6491..7630",
-            "7631..8970",
-            "8971..10550",
-            "10551..12410",
-            "12411..14600",
-            "14601..17160",
-            "17161..20170",
-            "20171..23700",
-            "23701..27880",
-            "27881..32790",
-            "32791..38560",
-            "38561..45350",
-            ">45350",
+            "0..5",
+            "6..10",
+            "11..15",
+            "16..25",
+            "26..40",
+            "41..60",
+            "61..90",
+            "91..130",
+            "131..180",
+            "181..250",
+            "251..350",
+            "351..500",
+            "501..700",
+            "701..1000",
+            "1001..1400",
+            "1401..2000",
+            "2001..3000",
+            "3001..4500",
+            "4501..7000",
+            "7001..10000",
+            "10001..15000",
+            "15001..25000",
+            "25001..50000",
+            ">50000",
         ]
 
         time_ranges = [

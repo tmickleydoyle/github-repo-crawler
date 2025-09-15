@@ -1,12 +1,12 @@
 """Repository pattern for centralized database operations."""
-from datetime import date, datetime, timezone
-from typing import List, Optional
+from datetime import UTC, date, datetime
 
 import asyncpg
 from asyncpg import Connection, Pool
 
 from .config import get_settings
-from .domain import CrawlResult, Repository as RepoModel
+from .domain import CrawlResult
+from .domain import Repository as RepoModel
 from .logger import get_logger
 
 
@@ -18,7 +18,7 @@ class DatabaseRepository:
     the codebase. All database operations go through this single interface.
     """
 
-    def __init__(self, pool: Optional[Pool] = None):
+    def __init__(self, pool: Pool | None = None):
         """Initialize the database repository.
 
         Args:
@@ -152,7 +152,7 @@ class DatabaseRepository:
 
         conn = await self.get_connection()
         try:
-            current_date = datetime.now(timezone.utc).date()
+            current_date = datetime.now(UTC).date()
             stats = {
                 "successful": 0,
                 "failed": 0,
@@ -242,7 +242,7 @@ class DatabaseRepository:
             repo.stars,
         )
 
-    def _parse_github_datetime(self, dt_input) -> Optional[datetime]:
+    def _parse_github_datetime(self, dt_input) -> datetime | None:
         """Parse GitHub datetime to timezone-naive format for PostgreSQL.
 
         Args:
@@ -256,16 +256,16 @@ class DatabaseRepository:
 
         if isinstance(dt_input, datetime):
             if dt_input.tzinfo:
-                return dt_input.astimezone(timezone.utc).replace(tzinfo=None)
+                return dt_input.astimezone(UTC).replace(tzinfo=None)
             return dt_input
 
         if isinstance(dt_input, str):
             dt_aware = datetime.fromisoformat(dt_input.replace("Z", "+00:00"))
-            return dt_aware.astimezone(timezone.utc).replace(tzinfo=None)
+            return dt_aware.astimezone(UTC).replace(tzinfo=None)
 
         return None
 
-    async def get_repository_by_id(self, repo_id: int) -> Optional[dict]:
+    async def get_repository_by_id(self, repo_id: int) -> dict | None:
         """Get a repository by its ID.
 
         Args:
@@ -287,9 +287,9 @@ class DatabaseRepository:
     async def get_repository_stats(
         self,
         repo_id: int,
-        start_date: Optional[date] = None,
-        end_date: Optional[date] = None,
-    ) -> List[dict]:
+        start_date: date | None = None,
+        end_date: date | None = None,
+    ) -> list[dict]:
         """Get star statistics for a repository.
 
         Args:
@@ -334,7 +334,7 @@ class DatabaseRepository:
         finally:
             await self.release_connection(conn)
 
-    async def get_repositories_by_owner(self, owner: str) -> List[dict]:
+    async def get_repositories_by_owner(self, owner: str) -> list[dict]:
         """Get all repositories for a specific owner.
 
         Args:
@@ -364,7 +364,7 @@ class DatabaseRepository:
         """
         conn = await self.get_connection()
         try:
-            cutoff_date = datetime.now(timezone.utc).date()
+            cutoff_date = datetime.now(UTC).date()
             cutoff_date = cutoff_date.replace(day=cutoff_date.day - days_to_keep)
 
             result = await conn.execute(

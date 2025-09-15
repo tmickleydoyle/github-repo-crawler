@@ -1,25 +1,26 @@
-import aiohttp
 import asyncio
 import logging
-from typing import Optional, List, Dict, Any
+from typing import Any
+
+import aiohttp
 from tenacity import (
+    before_sleep_log,
     retry,
+    retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
-    retry_if_exception_type,
-    before_sleep_log,
 )
 
 from .config import get_settings
 from .domain import (
-    Repository,
+    ApiError,
+    AuthenticationError,
     CrawlResult,
+    RateLimitError,
+    Repository,
+    SearchExhaustedError,
     SearchQuery,
     transform_github_response,
-    RateLimitError,
-    AuthenticationError,
-    SearchExhaustedError,
-    ApiError,
 )
 from .search_strategy import SimpleSearchStrategy
 
@@ -39,7 +40,7 @@ class GitHubClient:
     - Isolating external API concerns from business logic
     """
 
-    def __init__(self, token: str = None):
+    def __init__(self, token: str | None = None):
         settings = get_settings()
         if token is None:
             token = settings.github_token.get_secret_value()
@@ -113,7 +114,7 @@ class GitHubClient:
         before_sleep=before_sleep_log(logger, logging.WARNING),
         reraise=True,
     )
-    async def _make_graphql_request(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    async def _make_graphql_request(self, payload: dict[str, Any]) -> dict[str, Any]:
         """
         Make a GraphQL request with comprehensive retry logic.
 
@@ -164,7 +165,7 @@ class GitHubClient:
                                 await asyncio.sleep(60)
                                 raise RateLimitError(f"GraphQL rate limited: {error}")
 
-                        if "data" in response_data and response_data["data"]:
+                        if response_data.get("data"):
                             logger.warning(
                                 f"⚠️ GraphQL errors (continuing): " f"{error_messages}"
                             )
@@ -180,8 +181,8 @@ class GitHubClient:
             raise
 
     async def search_repositories(
-        self, query: SearchQuery, after: Optional[str] = None
-    ) -> Dict[str, Any]:
+        self, query: SearchQuery, after: str | None = None
+    ) -> dict[str, Any]:
         """
         Execute a GraphQL search query and return repositories using domain models.
 
@@ -275,7 +276,7 @@ class GitHubClient:
         settings = get_settings()
         logger.info(f"🎯 Target: {settings.crawler_max_repos} repositories")
 
-        repositories: List[Repository] = []
+        repositories: list[Repository] = []
         repository_ids: set[int] = set()
         target_repos = settings.crawler_max_repos
 
@@ -338,7 +339,7 @@ class GitHubClient:
     async def _crawl_query(
         self,
         search_query: SearchQuery,
-        repositories: List[Repository],
+        repositories: list[Repository],
         repository_ids: set,
         target_repos: int,
     ):

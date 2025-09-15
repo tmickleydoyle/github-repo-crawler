@@ -5,9 +5,7 @@ import asyncio
 from .client import GitHubClient
 from .config import get_settings
 from .db_repository import DatabaseRepository
-from .logger import LogContext, get_logger, setup_logging
-
-
+from .logger import get_logger, setup_logging
 
 
 def parse_args():
@@ -88,7 +86,7 @@ async def run():
             # Use centralized database repository
             async with DatabaseRepository() as db_repo:
                 await db_repo.initialize_schema()
-                stats = await db_repo.store_repositories(
+                await db_repo.store_repositories(
                     crawl_result, args.matrix_index
                 )
 

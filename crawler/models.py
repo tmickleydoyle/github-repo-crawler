@@ -6,10 +6,10 @@ and stored in the database. They provide validation, serialization, and
 type safety for the crawler operations.
 """
 
-from pydantic import BaseModel, Field, field_validator, ConfigDict
 from datetime import date, datetime
+
 from dateutil import parser as date_parser
-from typing import Optional
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class Repo(BaseModel):
@@ -25,7 +25,7 @@ class Repo(BaseModel):
     owner: str
     url: str
     created_at: datetime
-    alphabet_partition: Optional[str] = None
+    alphabet_partition: str | None = None
 
     @field_validator("created_at", mode="before")
     @classmethod

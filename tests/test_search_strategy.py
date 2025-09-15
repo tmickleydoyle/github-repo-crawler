@@ -8,8 +8,8 @@ These tests verify that:
 4. Query optimization produces valid GitHub search strings
 """
 
-from crawler.search_strategy import SimpleSearchStrategy
 from crawler.domain import SearchQuery
+from crawler.search_strategy import SimpleSearchStrategy
 
 
 class TestSimpleSearchStrategy:

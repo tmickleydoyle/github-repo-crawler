@@ -1,135 +1,53 @@
-# CLAUDE.md
+## Project Structure & Organization
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+**Use a standard project layout** with clear separation of concerns. Organize code into logical modules with `src/` or package-name directories, separate `tests/`, `docs/`, and configuration files at the root level.
 
-## Project Overview
+**Implement proper package management** using `pyproject.toml` for modern Python projects, with tools like Poetry or pip-tools for dependency management. Pin exact versions in production and use virtual environments consistently.
 
-This is a high-performance GitHub repository crawler using GraphQL API designed for scalability and production use.
+## Code Quality & Standards
 
-## Commands
+**Follow PEP 8 and use automated formatting** with Black, isort for imports, and flake8 or ruff for linting. Configure these tools in your project to maintain consistent code style across the team.
 
-**Development:**
-- `make install-dev` - Install all dependencies including development tools
-- `make run` - Run the crawler locally (100 repos, single job)
-- `make format` - Format code with ruff
-- `make lint` - Lint code with ruff
-- `make type-check` - Type check with mypy (strict mode)
-- `make quality` - Run all quality checks (lint, type, test)
+**Write comprehensive tests** using pytest with good coverage (aim for 80%+). Include unit tests, integration tests, and end-to-end tests. Use fixtures, parameterized tests, and mock external dependencies appropriately.
 
-**Testing:**
-- `make test` - Run all tests
-- `make test-unit` - Run unit tests only
-- `make test-integration` - Run integration tests only
-- `make test-coverage` - Run tests with coverage report
+**Implement proper error handling** with specific exception types, logging at appropriate levels, and graceful degradation. Use structured logging with libraries like structlog for better observability.
 
-**Database:**
-- `make db-migrate` - Create new database migration
-- `make db-upgrade` - Apply database migrations
-- `make db-downgrade` - Rollback database migrations
+## Architecture & Design
 
-**Docker:**
-- `make docker-build` - Build production Docker image
-- `make docker-build-dev` - Build development Docker image
-- `make docker-run` - Run with docker-compose
+**Design for modularity and maintainability** using dependency injection, clear interfaces, and the principle of least privilege. Consider using design patterns like Repository, Factory, or Strategy where appropriate.
 
-## Architecture
+**Separate configuration from code** using environment variables, configuration files, or tools like Pydantic Settings. Never hardcode secrets or environment-specific values.
 
-**Core Modules:**
-- `crawler/config.py` - Centralized configuration using Pydantic Settings
-- `crawler/main.py` - Application entry point with structured logging
-- `crawler/client.py` - GitHub GraphQL API client with retry logic
-- `crawler/db_repository.py` - Centralized database operations (Repository pattern)
-- `crawler/domain.py` - Domain models and business logic
-- `crawler/logger.py` - Structured logging with structlog
-- `crawler/search_strategy.py` - Search strategy implementations
+**Implement proper database patterns** with connection pooling, migrations (using Alembic), and ORM best practices if using SQLAlchemy. Consider async patterns for I/O-bound operations.
 
-**Key Patterns:**
-- **Repository Pattern:** All database operations centralized in `DatabaseRepository` class
-- **Dependency Injection:** Settings injected via `get_settings()` function
-- **Structured Logging:** All operations logged with context using structlog
-- **Async/Await:** Full async architecture for I/O operations
-- **Configuration:** Flat Pydantic Settings with environment variable mapping
+## Security & Performance
 
-## Configuration
+**Validate all inputs** using libraries like Pydantic for data validation and serialization. Sanitize user inputs and implement proper authentication and authorization.
 
-All configuration is centralized in `crawler/config.py` using a flat structure for performance:
+**Optimize for performance** by profiling bottlenecks, using appropriate data structures, implementing caching strategies, and considering async/await for concurrent operations.
 
-```python
-from crawler.config import get_settings
-settings = get_settings()
+**Handle secrets securely** using environment variables, secret management services, or tools like python-dotenv for development. Never commit secrets to version control.
 
-# Database access
-settings.database_host
-settings.database_url  # Computed property
+## Development Workflow
 
-# GitHub API
-settings.github_token
-settings.github_api_url
+**Use version control effectively** with meaningful commit messages, feature branches, and code review processes. Implement pre-commit hooks for automated checks.
 
-# Crawler behavior
-settings.crawler_max_repos
-settings.crawler_batch_size
-```
+**Set up CI/CD pipelines** that run tests, linting, security scans, and automated deployments. Use tools like GitHub Actions, GitLab CI, or Jenkins.
 
-Environment variables are automatically mapped (see config.py for full list).
+**Implement proper logging and monitoring** with structured logs, metrics collection, and alerting. Use tools like Prometheus, Grafana, or application performance monitoring solutions.
 
-## Database Operations
+## Documentation & Deployment
 
-All database operations go through the centralized `DatabaseRepository`:
+**Write clear documentation** including README files, API documentation (using tools like Sphinx or FastAPI's automatic docs), and inline docstrings following conventions.
 
-```python
-from crawler.db_repository import DatabaseRepository
+**Containerize your application** using Docker with multi-stage builds, proper base images, and security scanning. Use docker-compose for local development environments.
 
-async with DatabaseRepository() as db_repo:
-    await db_repo.initialize_schema()
-    stats = await db_repo.store_repositories(crawl_result, matrix_index)
-```
+**Plan for scalability** by designing stateless services, implementing proper caching, database optimization, and considering microservices architecture for complex applications.
 
-This ensures:
-- Connection pooling and proper resource management
-- Consistent error handling and logging
-- Transaction safety
-- Easy testing and mocking
+These practices become increasingly important as your application grows in complexity and team size. Start with the fundamentals and gradually adopt more sophisticated patterns as your needs evolve.
 
-## Logging
+## Finally
 
-Use structured logging throughout:
-
-```python
-from crawler.logger import get_logger, LogContext
-
-logger = get_logger(__name__, component="crawler")
-logger.info("Operation started", repos_count=100, matrix_index=0)
-
-# For operations with timing
-async with LogContext(logger, "database_operation", **context):
-    # Operation code here
-    pass
-```
-
-## Testing
-
-- Tests are in `tests/` directory
-- Use `@pytest.mark.integration` for integration tests
-- Mock external dependencies (GitHub API, database)
-- Use `pytest-asyncio` for async tests
-
-## GitHub Actions
-
-The workflow supports:
-- Modern Python packaging with pyproject.toml
-- Code quality checks with ruff and mypy
-- Matrix-based parallel crawling
-- Automatic database exports
-- Proper artifact handling
-
-Run manually via Actions tab with configurable matrix size and repos per job.
-
-## Performance Considerations
-
-- Uses connection pooling for database operations
-- Async/await throughout for I/O concurrency
-- Structured logging avoids string formatting overhead
-- Flat configuration structure reduces object creation
-- Repository pattern centralizes and optimizes database queries
-- GraphQL batch operations reduce API calls
+**Dead code** should never be included in the application
+**Unused imports** should never be included in the application
+**Centralization, centralization, centralization,** make sure to centralize as much logic as possible so that junior engineers with no knowledge of the project can easily maintain this code
