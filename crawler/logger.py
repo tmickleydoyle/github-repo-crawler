@@ -182,3 +182,44 @@ class LogContext:
                 exc_info=True,
             )
         return False
+
+    async def __aenter__(self):
+        """Async enter context and log operation start."""
+        import time
+        self.start_time = time.time()
+        self.logger.info(
+            f"Starting {self.operation}",
+            operation=self.operation,
+            **self.context,
+        )
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async exit context and log operation completion."""
+        import time
+        duration = time.time() - self.start_time
+
+        if exc_type is None:
+            self.logger.info(
+                f"Completed {self.operation}",
+                **log_operation(
+                    self.operation,
+                    success=True,
+                    duration=duration,
+                    **self.context,
+                ),
+            )
+        else:
+            self.logger.error(
+                f"Failed {self.operation}",
+                **log_operation(
+                    self.operation,
+                    success=False,
+                    duration=duration,
+                    error=str(exc_val),
+                    error_type=exc_type.__name__,
+                    **self.context,
+                ),
+                exc_info=True,
+            )
+        return False

@@ -7,7 +7,7 @@ from asyncpg import Connection, Pool
 
 from .config import get_settings
 from .domain import CrawlResult, Repository as RepoModel
-from .logger import LogContext, get_logger
+from .logger import get_logger
 
 
 class DatabaseRepository:
@@ -79,9 +79,9 @@ class DatabaseRepository:
         Creates all necessary tables and indexes if they don't exist.
         This centralizes schema management in one place.
         """
-        async with LogContext(self.logger, "schema_initialization"):
-            conn = await self.get_connection()
-            try:
+        self.logger.info("Starting schema initialization")
+        conn = await self.get_connection()
+        try:
                 # Create main repository table
                 await conn.execute("""
                     CREATE TABLE IF NOT EXISTS repo (
@@ -142,14 +142,16 @@ class DatabaseRepository:
         Returns:
             Dictionary with storage statistics
         """
-        async with LogContext(
-            self.logger,
-            "store_repositories",
+        import time
+        start_time = time.time()
+        self.logger.info(
+            "Starting repository storage",
             matrix_index=matrix_index,
             repo_count=len(crawl_result.repositories),
-        ):
-            conn = await self.get_connection()
-            try:
+        )
+
+        conn = await self.get_connection()
+        try:
                 current_date = datetime.now(timezone.utc).date()
                 stats = {
                     "successful": 0,
@@ -173,12 +175,14 @@ class DatabaseRepository:
                                 error=str(e),
                             )
 
+                duration = time.time() - start_time
                 self.logger.info(
                     "Repository storage completed",
                     **stats,
                     unique_owners=crawl_result.unique_owners,
                     total_stars=crawl_result.total_stars,
                     average_stars=round(crawl_result.average_stars, 1),
+                    duration_seconds=round(duration, 3),
                 )
 
                 return stats

@@ -71,37 +71,44 @@ async def run():
         matrix_job=f"{args.matrix_index + 1}/{args.matrix_total}",
     )
 
-    async with LogContext(logger, "crawler_execution"):
-        try:
-            async with GitHubClient() as client:
-                if not await client.test_connection():
-                    logger.error("GitHub API connection test failed")
-                    return
+    import time
+    start_time = time.time()
+    logger.info("Starting crawler execution")
 
-                crawl_result = await client.crawl(
-                    matrix_total=args.matrix_total, matrix_index=args.matrix_index
-                )
+    try:
+        async with GitHubClient() as client:
+            if not await client.test_connection():
+                logger.error("GitHub API connection test failed")
+                return
 
-                # Use centralized database repository
-                async with DatabaseRepository() as db_repo:
-                    await db_repo.initialize_schema()
-                    stats = await db_repo.store_repositories(
-                        crawl_result, args.matrix_index
-                    )
-
-                logger.info(
-                    "Crawl completed successfully",
-                    repositories_count=len(crawl_result.repositories),
-                )
-
-        except Exception as e:
-            logger.error(
-                "Crawl failed",
-                error=str(e),
-                error_type=type(e).__name__,
-                exc_info=True,
+            crawl_result = await client.crawl(
+                matrix_total=args.matrix_total, matrix_index=args.matrix_index
             )
-            raise
+
+            # Use centralized database repository
+            async with DatabaseRepository() as db_repo:
+                await db_repo.initialize_schema()
+                stats = await db_repo.store_repositories(
+                    crawl_result, args.matrix_index
+                )
+
+            duration = time.time() - start_time
+            logger.info(
+                "Crawl completed successfully",
+                repositories_count=len(crawl_result.repositories),
+                duration_seconds=round(duration, 3),
+            )
+
+    except Exception as e:
+        duration = time.time() - start_time
+        logger.error(
+            "Crawl failed",
+            error=str(e),
+            error_type=type(e).__name__,
+            duration_seconds=round(duration, 3),
+            exc_info=True,
+        )
+        raise
 
 
 def main():

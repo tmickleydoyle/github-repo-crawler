@@ -10,7 +10,7 @@ from tenacity import (
     before_sleep_log,
 )
 
-from .config import settings
+from .config import get_settings
 from .domain import (
     Repository,
     CrawlResult,
@@ -39,11 +39,15 @@ class GitHubClient:
     - Isolating external API concerns from business logic
     """
 
-    def __init__(self, token: str = settings.github_token):
+    def __init__(self, token: str = None):
+        settings = get_settings()
+        if token is None:
+            token = settings.github_token.get_secret_value()
+
         if not token or token == "dummy_token_for_validation":
             raise ValueError("GitHub token is required and must be valid")
 
-        self.graphql_url = "https://api.github.com/graphql"
+        self.graphql_url = settings.github_api_url
         self.headers = {
             "Authorization": f"Bearer {token}",
             "Accept": "application/vnd.github.v4+json",
@@ -268,11 +272,12 @@ class GitHubClient:
         - Returns structured results with metadata
         """
         logger.info(f"🚀 Starting crawl: Matrix job {matrix_index + 1}/{matrix_total}")
-        logger.info(f"🎯 Target: {settings.max_repos} repositories")
+        settings = get_settings()
+        logger.info(f"🎯 Target: {settings.crawler_max_repos} repositories")
 
         repositories: List[Repository] = []
         repository_ids: set[int] = set()
-        target_repos = settings.max_repos
+        target_repos = settings.crawler_max_repos
 
         search_queries = self.search_strategy.generate_queries(
             matrix_index, matrix_total
