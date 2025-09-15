@@ -29,7 +29,7 @@ class Repo(BaseModel):
 
     @field_validator("created_at", mode="before")
     @classmethod
-    def parse_datetime(cls, v):
+    def parse_datetime(cls, v) -> datetime:
         """
         Parse datetime strings from GitHub API into Python datetime objects.
 

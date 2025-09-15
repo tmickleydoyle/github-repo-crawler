@@ -1,6 +1,8 @@
 """Main entry point for the GitHub crawler application."""
+
 import argparse
 import asyncio
+from typing import Any
 
 from .client import GitHubClient
 from .config import get_settings
@@ -8,7 +10,7 @@ from .db_repository import DatabaseRepository
 from .logger import get_logger, setup_logging
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
     settings = get_settings()
     p = argparse.ArgumentParser(description="Crawl GitHub repos for star counts")
@@ -33,7 +35,7 @@ def parse_args():
     return p.parse_args()
 
 
-async def run():
+async def run() -> None:
     """
     Main entry point using clean architecture principles.
 
@@ -44,7 +46,7 @@ async def run():
     - Separation of concerns
     - Centralized database operations
     """
-    args = parse_args()
+    args = parse_args()  # type: ignore
     settings = get_settings()
 
     # Setup structured logging (CLAUDE.md: "Use structured logging")
@@ -81,9 +83,7 @@ async def run():
             # Use centralized database repository (CLAUDE.md: "Centralization")
             async with DatabaseRepository() as db_repo:
                 await db_repo.initialize_schema()
-                await db_repo.store_repositories(
-                    crawl_result, args.matrix_index
-                )
+                await db_repo.store_repositories(crawl_result, args.matrix_index)
 
             logger.info(
                 "Crawl completed successfully",
@@ -99,10 +99,10 @@ async def run():
         raise
 
 
-def main():
+def main() -> None:
     """Main entry point."""
-    asyncio.run(run())
+    asyncio.run(run())  # type: ignore
 
 
 if __name__ == "__main__":
-    main()
+    main()  # type: ignore

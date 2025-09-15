@@ -167,7 +167,7 @@ class GitHubClient:
 
                         if response_data.get("data"):
                             logger.warning(
-                                f"⚠️ GraphQL errors (continuing): " f"{error_messages}"
+                                f"⚠️ GraphQL errors (continuing): {error_messages}"
                             )
                         else:
                             raise ApiError(f"GraphQL query failed: {error_messages}")

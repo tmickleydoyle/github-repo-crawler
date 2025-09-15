@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from crawler.domain import CrawlResult, Repository
-from crawler.main import run, store_repositories
+from crawler.main import run
 
 
 class TestCrawlerIntegration:
@@ -64,9 +64,16 @@ class TestCrawlerIntegration:
                 mock_client.test_connection = AsyncMock(return_value=True)
                 mock_client.crawl = AsyncMock(return_value=mock_crawl_result)
 
-                with patch(
-                    "crawler.main.store_repositories", new_callable=AsyncMock
-                ) as mock_store, patch("crawler.main.parse_args") as mock_args:
+                with (
+                    patch("crawler.main.DatabaseRepository") as mock_db_class,
+                    patch("crawler.main.parse_args") as mock_args,
+                ):
+                    mock_db = mock_db_class.return_value
+                    mock_db.__aenter__ = AsyncMock(return_value=mock_db)
+                    mock_db.__aexit__ = AsyncMock(return_value=None)
+                    mock_db.initialize_schema = AsyncMock()
+                    mock_db.store_repositories = AsyncMock()
+
                     mock_args.return_value.repos = 1000
                     mock_args.return_value.matrix_total = 1
                     mock_args.return_value.matrix_index = 0
@@ -77,7 +84,10 @@ class TestCrawlerIntegration:
                     mock_client.crawl.assert_called_once_with(
                         matrix_total=1, matrix_index=0
                     )
-                    mock_store.assert_called_once_with(mock_crawl_result, 0)
+                    mock_db.initialize_schema.assert_called_once()
+                    mock_db.store_repositories.assert_called_once_with(
+                        mock_crawl_result, 0
+                    )
 
     @pytest.mark.asyncio
     @pytest.mark.integration
@@ -124,7 +134,7 @@ class TestCrawlerIntegration:
             duration_seconds=0.8,
         )
 
-        with patch("crawler.main.asyncpg.connect") as mock_connect:
+        with patch("crawler.db_repository.asyncpg.connect") as mock_connect:
             mock_conn = AsyncMock()
             mock_connect.return_value = mock_conn
 
@@ -134,7 +144,10 @@ class TestCrawlerIntegration:
 
             mock_conn.transaction = lambda: mock_transaction
 
-            await store_repositories(test_crawl_result, matrix_index=0)
+            from crawler.db_repository import DatabaseRepository
+
+            db_repo = DatabaseRepository()
+            await db_repo.store_repositories(test_crawl_result, matrix_index=0)
 
             mock_connect.assert_called_once()
             mock_conn.execute.assert_called()
@@ -173,11 +186,14 @@ class TestErrorHandling:
             duration_seconds=0.0,
         )
 
-        with patch("crawler.main.asyncpg.connect") as mock_connect:
+        with patch("crawler.db_repository.asyncpg.connect") as mock_connect:
             mock_connect.side_effect = Exception("Database connection failed")
 
+            from crawler.db_repository import DatabaseRepository
+
+            db_repo = DatabaseRepository()
             with pytest.raises(Exception, match="Database connection failed"):
-                await store_repositories(test_crawl_result, matrix_index=0)
+                await db_repo.store_repositories(test_crawl_result, matrix_index=0)
 
 
 class TestPerformance:
@@ -206,7 +222,7 @@ class TestPerformance:
             duration_seconds=5.0,
         )
 
-        with patch("crawler.main.asyncpg.connect") as mock_connect:
+        with patch("crawler.db_repository.asyncpg.connect") as mock_connect:
             mock_conn = AsyncMock()
             mock_connect.return_value = mock_conn
 
@@ -220,7 +236,10 @@ class TestPerformance:
 
             start_time = time.time()
 
-            await store_repositories(large_crawl_result, matrix_index=0)
+            from crawler.db_repository import DatabaseRepository
+
+            db_repo = DatabaseRepository()
+            await db_repo.store_repositories(large_crawl_result, matrix_index=0)
 
             end_time = time.time()
             duration = end_time - start_time

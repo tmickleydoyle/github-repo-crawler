@@ -1,7 +1,9 @@
 """Structured logging configuration using structlog."""
+
 import logging
 import sys
-from typing import Any
+from typing import Any, Dict, List, Literal, Optional, Union
+import types
 
 import structlog
 from structlog.processors import CallsiteParameter
@@ -29,7 +31,7 @@ def setup_logging(
     )
 
     # Build processor chain
-    processors = [
+    processors: List[Any] = [
         structlog.stdlib.filter_by_level,
         structlog.stdlib.add_logger_name,
         structlog.stdlib.add_log_level,
@@ -75,7 +77,7 @@ def setup_logging(
     )
 
 
-def get_logger(name: str = __name__, **kwargs: Any) -> structlog.BoundLogger:
+def get_logger(name: str = __name__, **kwargs: Any) -> Any:
     """Get a configured logger instance.
 
     Args:
@@ -126,7 +128,7 @@ class LogContext:
 
     def __init__(
         self,
-        logger: structlog.BoundLogger,
+        logger: Any,  # structlog.BoundLogger
         operation: str,
         **context: Any,
     ):
@@ -140,11 +142,12 @@ class LogContext:
         self.logger = logger
         self.operation = operation
         self.context = context
-        self.start_time = None
+        self.start_time: Optional[float] = None
 
-    def __enter__(self):
+    def __enter__(self) -> "LogContext":
         """Enter context and log operation start."""
         import time
+
         self.start_time = time.time()
         self.logger.info(
             f"Starting {self.operation}",
@@ -153,10 +156,19 @@ class LogContext:
         )
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(
+        self,
+        exc_type: Optional[type],
+        exc_val: Optional[Exception],
+        exc_tb: Optional[types.TracebackType],
+    ) -> Literal[False]:
         """Exit context and log operation completion."""
         import time
-        duration = time.time() - self.start_time
+
+        if self.start_time is not None:
+            duration = time.time() - self.start_time
+        else:
+            duration = 0.0
 
         if exc_type is None:
             self.logger.info(
@@ -176,16 +188,17 @@ class LogContext:
                     success=False,
                     duration=duration,
                     error=str(exc_val),
-                    error_type=exc_type.__name__,
+                    error_type=exc_type.__name__ if exc_type else "Unknown",
                     **self.context,
                 ),
                 exc_info=True,
             )
         return False
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> "LogContext":
         """Async enter context and log operation start."""
         import time
+
         self.start_time = time.time()
         self.logger.info(
             f"Starting {self.operation}",
@@ -194,10 +207,19 @@ class LogContext:
         )
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(
+        self,
+        exc_type: Optional[type],
+        exc_val: Optional[Exception],
+        exc_tb: Optional[types.TracebackType],
+    ) -> Literal[False]:
         """Async exit context and log operation completion."""
         import time
-        duration = time.time() - self.start_time
+
+        if self.start_time is not None:
+            duration = time.time() - self.start_time
+        else:
+            duration = 0.0
 
         if exc_type is None:
             self.logger.info(
@@ -217,7 +239,7 @@ class LogContext:
                     success=False,
                     duration=duration,
                     error=str(exc_val),
-                    error_type=exc_type.__name__,
+                    error_type=exc_type.__name__ if exc_type else "Unknown",
                     **self.context,
                 ),
                 exc_info=True,

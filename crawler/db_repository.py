@@ -1,4 +1,5 @@
 """Repository pattern for centralized database operations."""
+
 from datetime import UTC, date, datetime
 
 import asyncpg
@@ -36,7 +37,7 @@ class DatabaseRepository:
             Configured asyncpg connection pool
         """
         # Optimize pool settings for high-concurrency matrix runs
-        concurrent_requests = getattr(self.settings, 'crawler_concurrent_requests', 10)
+        concurrent_requests = getattr(self.settings, "crawler_concurrent_requests", 10)
 
         return await asyncpg.create_pool(
             host=self.settings.database_host,
@@ -46,13 +47,15 @@ class DatabaseRepository:
             database=self.settings.database_name,
             # Scale pool size based on concurrency needs
             min_size=max(5, concurrent_requests // 2),
-            max_size=min(50, max(self.settings.database_pool_size, concurrent_requests * 2)),
+            max_size=min(
+                50, max(self.settings.database_pool_size, concurrent_requests * 2)
+            ),
             # Reduce timeout for faster failures and connection recycling
             command_timeout=30,
             # Add connection lifecycle management for better performance
             max_inactive_connection_lifetime=300,  # 5 minutes
             # Optimize for GitHub Actions environment
-            server_settings={'jit': 'off', 'shared_preload_libraries': ''}
+            server_settings={"jit": "off", "shared_preload_libraries": ""},
         )
 
     async def get_connection(self) -> Connection:
@@ -152,6 +155,7 @@ class DatabaseRepository:
             Dictionary with storage statistics
         """
         import time
+
         start_time = time.time()
         self.logger.info(
             "Starting repository storage",
@@ -236,7 +240,8 @@ class DatabaseRepository:
         created_at = self._parse_github_datetime(repo.created_at)
 
         # Upsert repository
-        await conn.execute("""
+        await conn.execute(
+            """
             INSERT INTO repo
             (id, name, owner, url, created_at, name_with_owner, alphabet_partition)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -255,7 +260,8 @@ class DatabaseRepository:
         )
 
         # Upsert statistics
-        await conn.execute("""
+        await conn.execute(
+            """
             INSERT INTO repo_stats (repo_id, fetched_date, stars)
             VALUES ($1, $2, $3)
             ON CONFLICT (repo_id, fetched_date) DO UPDATE SET
