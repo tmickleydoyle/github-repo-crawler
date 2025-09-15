@@ -40,7 +40,10 @@ class Repo(BaseModel):
         if isinstance(v, str):
             dt = date_parser.parse(v)
             return dt.replace(tzinfo=None) if dt.tzinfo else dt
-        return v  # type: ignore
+        elif isinstance(v, datetime):
+            return v
+        else:
+            raise ValueError(f"Invalid datetime value: {v}")
 
 
 class RepoStats(BaseModel):
