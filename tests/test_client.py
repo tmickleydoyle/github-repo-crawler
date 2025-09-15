@@ -189,10 +189,11 @@ class TestGitHubClientRequestHandling:
         mock_response = AsyncMock()
         mock_response.status = 401
 
-        with patch.object(client, "_session") as mock_session:
-            mock_session.post.return_value.__aenter__.return_value = mock_response
+        async with client:
+            with patch.object(client._session, "post") as mock_post:
+                mock_post.return_value.__aenter__.return_value = mock_response
+                mock_post.return_value.__aexit__.return_value = None
 
-            async with client:
                 with pytest.raises(AuthenticationError):
                     await client._make_graphql_request({"query": "test"})
 
