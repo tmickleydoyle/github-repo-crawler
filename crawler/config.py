@@ -90,9 +90,13 @@ class Settings(BaseSettings):
         return self.environment == "development"
 
 
-@lru_cache
 def get_settings() -> Settings:
-    """Get cached settings instance."""
+    """Get settings instance.
+    
+    Note: Removed @lru_cache to ensure environment variables 
+    are always read fresh, which is critical for GitHub Actions
+    where tokens are set at runtime.
+    """
     return Settings()
 
 
