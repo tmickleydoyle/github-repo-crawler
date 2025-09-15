@@ -1,17 +1,85 @@
-import os
+"""Configuration management using Pydantic Settings."""
+from functools import lru_cache
+
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env")
+    """Main application settings."""
 
-    github_token: str = os.getenv("GITHUB_TOKEN", "dummy_token_for_validation")
-    github_api_url: str = "https://api.github.com/graphql"
-    database_url: str = "postgresql://postgres:postgres@localhost:5432/crawler"
-    batch_size: int = 100
-    max_repos: int = int(os.getenv("MAX_REPOS", "4000"))
-    total_matrix_jobs: int = 200
-    total_target_repos: int = 800000
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+    )
+
+    # Environment and debug
+    environment: str = Field(default="development", env="ENVIRONMENT")
+    debug: bool = Field(default=False, env="DEBUG")
+
+    # Database settings
+    database_host: str = Field(default="localhost", env="POSTGRES_HOST")
+    database_port: int = Field(default=5432, env="POSTGRES_PORT")
+    database_name: str = Field(default="crawler", env="POSTGRES_DB")
+    database_username: str = Field(default="postgres", env="POSTGRES_USER")
+    database_password: SecretStr = Field(default="postgres", env="POSTGRES_PASSWORD")
+    database_pool_size: int = Field(default=20, env="DB_POOL_SIZE")
+    database_max_overflow: int = Field(default=40, env="DB_MAX_OVERFLOW")
+
+    # GitHub settings
+    github_token: SecretStr = Field(..., env="GITHUB_TOKEN")
+    github_api_url: str = Field(default="https://api.github.com/graphql", env="GITHUB_API_URL")
+    github_rate_limit_threshold: int = Field(default=100, env="GITHUB_RATE_LIMIT_THRESHOLD")
+    github_retry_max_attempts: int = Field(default=5, env="GITHUB_RETRY_MAX_ATTEMPTS")
+    github_retry_backoff_factor: float = Field(default=2.0, env="GITHUB_RETRY_BACKOFF_FACTOR")
+
+    # Crawler settings
+    crawler_batch_size: int = Field(default=100, env="BATCH_SIZE")
+    crawler_max_repos: int = Field(default=4000, env="MAX_REPOS")
+    crawler_total_matrix_jobs: int = Field(default=200, env="TOTAL_MATRIX_JOBS")
+    crawler_total_target_repos: int = Field(default=800000, env="TOTAL_TARGET_REPOS")
+    crawler_concurrent_requests: int = Field(default=10, env="CONCURRENT_REQUESTS")
+    crawler_request_timeout: int = Field(default=30, env="REQUEST_TIMEOUT")
+
+    # Logging settings
+    log_level: str = Field(default="INFO", env="LOG_LEVEL")
+    log_format: str = Field(default="json", env="LOG_FORMAT")
+    log_enable_colors: bool = Field(default=True, env="LOG_COLORS")
+    log_include_timestamp: bool = Field(default=True, env="LOG_TIMESTAMP")
+
+    @field_validator("environment")
+    @classmethod
+    def validate_environment(cls, v: str) -> str:
+        """Validate environment value."""
+        allowed = ["development", "staging", "production", "testing"]
+        if v.lower() not in allowed:
+            raise ValueError(f"Environment must be one of {allowed}")
+        return v.lower()
+
+    @property
+    def database_url(self) -> str:
+        """Generate database URL from components."""
+        pwd = self.database_password.get_secret_value()
+        return f"postgresql://{self.database_username}:{pwd}@{self.database_host}:{self.database_port}/{self.database_name}"
+
+    @property
+    def is_production(self) -> bool:
+        """Check if running in production environment."""
+        return self.environment == "production"
+
+    @property
+    def is_development(self) -> bool:
+        """Check if running in development environment."""
+        return self.environment == "development"
 
 
-settings = Settings()
+@lru_cache
+def get_settings() -> Settings:
+    """Get cached settings instance."""
+    return Settings()
+
+
+# For module-level access
+settings = get_settings()
