@@ -278,7 +278,12 @@ class GitHubClient:
             )
             raise ApiError(f"Search request failed: {e}") from e
 
-    async def crawl(self, matrix_total: int = 1, matrix_index: int = 0, target_repos: int | None = None) -> CrawlResult:
+    async def crawl(
+        self,
+        matrix_total: int = 1,
+        matrix_index: int = 0,
+        target_repos: int | None = None,
+    ) -> CrawlResult:
         """
         Main crawling method using clean architecture principles.
 

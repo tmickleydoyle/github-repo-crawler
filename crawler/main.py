@@ -78,7 +78,7 @@ async def run() -> None:
             crawl_result = await client.crawl(
                 matrix_total=args.matrix_total,
                 matrix_index=args.matrix_index,
-                target_repos=args.repos
+                target_repos=args.repos,
             )
 
             # Use centralized database repository (CLAUDE.md: "Centralization")
