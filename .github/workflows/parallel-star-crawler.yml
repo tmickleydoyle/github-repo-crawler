@@ -214,7 +214,8 @@ jobs:
                       url TEXT NOT NULL,
                       created_at TIMESTAMP,
                       alphabet_partition VARCHAR(100),
-                      name_with_owner TEXT
+                      name_with_owner TEXT,
+                      last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                   )
               ''')
               
@@ -223,6 +224,7 @@ jobs:
                       repo_id BIGINT NOT NULL REFERENCES repo(id) ON DELETE CASCADE,
                       fetched_date DATE NOT NULL,
                       stars INT NOT NULL,
+                      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                       PRIMARY KEY(repo_id, fetched_date)
                   )
               ''')
@@ -454,12 +456,14 @@ jobs:
                   url TEXT NOT NULL,
                   created_at TIMESTAMP,
                   alphabet_partition VARCHAR(100),
-                  name_with_owner TEXT
+                  name_with_owner TEXT,
+                  last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
                 CREATE TABLE IF NOT EXISTS repo_stats (
                   repo_id BIGINT NOT NULL REFERENCES repo(id) ON DELETE CASCADE,
                   fetched_date DATE NOT NULL,
                   stars INT NOT NULL,
+                  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                   PRIMARY KEY(repo_id, fetched_date)
                 );
                 TRUNCATE TABLE repo CASCADE;"
