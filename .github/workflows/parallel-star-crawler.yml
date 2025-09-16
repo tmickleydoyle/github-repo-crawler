@@ -279,19 +279,54 @@ jobs:
             exit 1
           fi
 
-          # Run crawler with error handling
+          # Run crawler with error handling and verbose logging
           set -e  # Exit on any error
           echo "🏃 Starting Python crawler..."
+          echo "📝 Debug info:"
+          echo "  - MAX_REPOS: ${MAX_REPOS}"
+          echo "  - Matrix Total: ${{ github.event.inputs.matrix_size || '10' }}"
+          echo "  - Matrix Index: ${{ matrix.job_index }}"
+          echo "  - Database: ${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}"
+
+          # Run with explicit error capture
           python -m crawler.main \
             --repos ${MAX_REPOS} \
             --matrix-total ${{ github.event.inputs.matrix_size || '10' }} \
-            --matrix-index ${{ matrix.job_index }} || {
-            echo "❌ Crawler failed with exit code $?"
+            --matrix-index ${{ matrix.job_index }} 2>&1 | tee crawler_output.log || {
+            EXIT_CODE=$?
+            echo "❌ Crawler failed with exit code $EXIT_CODE"
+            echo "📋 Last 50 lines of output:"
+            tail -50 crawler_output.log
             echo "Check the logs above for specific error details."
-            exit 1
+            exit $EXIT_CODE
           }
 
           echo "✅ Crawler completed successfully"
+
+          # Show summary of what was collected
+          echo "📊 Crawler output summary:"
+          grep -E "Collected:|Total stars:|repositories stored|No repositories" crawler_output.log || echo "No summary found"
+
+      - name: Debug database state
+        run: |
+          export PGPASSWORD="${{ env.POSTGRES_PASSWORD }}"
+          echo "🔍 Debugging database state immediately after crawler..."
+
+          # Check connection
+          psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} -c "SELECT version();" || {
+            echo "❌ Cannot connect to database!"
+            exit 1
+          }
+
+          # Check tables and counts
+          echo "📊 Database statistics:"
+          psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} << EOF
+          SELECT 'Tables:', count(*) FROM information_schema.tables WHERE table_schema = 'public';
+          SELECT 'Repos:', count(*) FROM repo;
+          SELECT 'Stats:', count(*) FROM repo_stats;
+          SELECT 'Sample repos:';
+          SELECT id, name, owner, stars FROM repo LIMIT 5;
+          EOF
 
       - name: Export job data
         run: |
@@ -300,11 +335,30 @@ jobs:
           TIMESTAMP=$(date +"%Y%m%d%H%M%S")
 
           # Get counts before export
-          echo "📊 Checking database contents..."
-          REPO_COUNT=$(psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} -t -c "SELECT COUNT(*) FROM repo;" | tr -d ' ')
-          STATS_COUNT=$(psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} -t -c "SELECT COUNT(*) FROM repo_stats;" | tr -d ' ')
+          echo "📊 Checking database contents for job ${{ matrix.job_index }}..."
 
-          echo "📊 Job ${{ matrix.job_index }} collected: ${REPO_COUNT} repos, ${STATS_COUNT} stat records"
+          # Check if tables exist first
+          TABLE_CHECK=$(psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_name IN ('repo', 'repo_stats');" | tr -d ' ')
+          echo "  - Tables found: ${TABLE_CHECK}/2"
+
+          if [ "$TABLE_CHECK" -eq "2" ]; then
+            REPO_COUNT=$(psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} -t -c "SELECT COUNT(*) FROM repo;" | tr -d ' ')
+            STATS_COUNT=$(psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} -t -c "SELECT COUNT(*) FROM repo_stats;" | tr -d ' ')
+
+            echo "📊 Job ${{ matrix.job_index }} database state:"
+            echo "  - Repositories in DB: ${REPO_COUNT}"
+            echo "  - Stats records in DB: ${STATS_COUNT}"
+
+            # Show sample data if any exists
+            if [ "$REPO_COUNT" -gt "0" ]; then
+              echo "  - Sample repos:"
+              psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} -c "SELECT id, name, owner, stars FROM repo LIMIT 3;"
+            fi
+          else
+            echo "⚠️ WARNING: Database tables not found!"
+            REPO_COUNT=0
+            STATS_COUNT=0
+          fi
 
           if [ "$REPO_COUNT" -eq 0 ]; then
             echo "⚠️ WARNING: No repositories found in database!"

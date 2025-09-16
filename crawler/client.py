@@ -49,6 +49,7 @@ class GitHubClient:
             raise ValueError("GitHub token is required and must be valid")
 
         self.graphql_url = settings.github_api_url
+        logger.info(f"📍 Using GitHub API URL: {self.graphql_url}")
         self.headers = {
             "Authorization": f"Bearer {token}",
             "Accept": "application/vnd.github.v4+json",
@@ -66,11 +67,13 @@ class GitHubClient:
             limit_per_host=20,
             keepalive_timeout=30,
             enable_cleanup_closed=True,
+            force_close=True,  # Force close connections to avoid reuse issues
         )
         self._session = aiohttp.ClientSession(
             connector=self._connector,
             headers=self.headers,
             timeout=aiohttp.ClientTimeout(total=30),
+            trust_env=True,  # Trust environment proxy settings if any
         )
         return self
 
@@ -123,6 +126,7 @@ class GitHubClient:
         if not self._session:
             raise RuntimeError("Client must be used as async context manager")
 
+        logger.debug(f"🔗 Making GraphQL request to: {self.graphql_url}")
         try:
             async with self._session.post(self.graphql_url, json=payload) as resp:
                 if resp.status == 401:
@@ -173,6 +177,13 @@ class GitHubClient:
                             raise ApiError(f"GraphQL query failed: {error_messages}")
 
                     return response_data
+
+                if resp.status == 404:
+                    logger.error(f"❌ 404 Not Found for URL: {self.graphql_url}")
+                    logger.error(f"Response headers: {resp.headers}")
+                    response_text = await resp.text()
+                    logger.error(f"Response body: {response_text[:500]}")
+                    raise ApiError(f"GitHub API endpoint not found: {self.graphql_url}")
 
                 resp.raise_for_status()
                 return {}
