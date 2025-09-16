@@ -55,8 +55,8 @@ class DatabaseRepository:
             command_timeout=30,
             # Add connection lifecycle management for better performance
             max_inactive_connection_lifetime=300,  # 5 minutes
-            # Optimize for GitHub Actions environment
-            server_settings={"jit": "off", "shared_preload_libraries": ""},
+            # Optimize for GitHub Actions environment - only set safe runtime parameters
+            server_settings={"jit": "off"},
         )
 
     async def get_connection(self) -> Connection:
