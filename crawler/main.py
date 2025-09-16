@@ -75,18 +75,20 @@ async def run() -> None:
         if not github_token or github_token == "dummy_token_for_validation":
             logger.error(
                 "❌ GitHub token is required but not configured",
-                help="Set GITHUB_TOKEN environment variable with a valid GitHub personal access token"
+                help="Set GITHUB_TOKEN environment variable with a valid GitHub personal access token",
             )
             raise ValueError("GitHub token is required but not configured")
 
-        logger.info(f"🔑 GitHub token configured (length: {len(github_token)} characters)")
+        logger.info(
+            f"🔑 GitHub token configured (length: {len(github_token)} characters)"
+        )
 
         async with GitHubClient() as client:
             logger.info("🔍 Testing GitHub API connection...")
             if not await client.test_connection():
                 logger.error(
                     "❌ GitHub API connection test failed",
-                    help="Check your GitHub token permissions and network connectivity"
+                    help="Check your GitHub token permissions and network connectivity",
                 )
                 # Return early instead of raising exception to maintain backward compatibility
                 return
@@ -102,20 +104,22 @@ async def run() -> None:
                     "⚠️ No repositories were collected during crawl",
                     matrix_index=args.matrix_index,
                     matrix_total=args.matrix_total,
-                    target_repos=args.repos
+                    target_repos=args.repos,
                 )
 
             # Use centralized database repository (CLAUDE.md: "Centralization")
             async with DatabaseRepository() as db_repo:
                 await db_repo.initialize_schema()
-                storage_stats = await db_repo.store_repositories(crawl_result, args.matrix_index)
+                storage_stats = await db_repo.store_repositories(
+                    crawl_result, args.matrix_index
+                )
 
             # Handle case where storage_stats might be a mock or not a dict
             if isinstance(storage_stats, dict):
                 logger.info(
                     "Crawl completed successfully",
                     repositories_count=len(crawl_result.repositories),
-                    **storage_stats
+                    **storage_stats,
                 )
             else:
                 logger.info(
@@ -128,7 +132,7 @@ async def run() -> None:
             logger.error(
                 "❌ GitHub token validation failed",
                 error=str(e),
-                help="Ensure GITHUB_TOKEN environment variable is set with a valid GitHub personal access token"
+                help="Ensure GITHUB_TOKEN environment variable is set with a valid GitHub personal access token",
             )
         else:
             logger.error("❌ Configuration error", error=str(e))

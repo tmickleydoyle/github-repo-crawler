@@ -72,11 +72,9 @@ class TestCrawlerIntegration:
                     mock_db.__aenter__ = AsyncMock(return_value=mock_db)
                     mock_db.__aexit__ = AsyncMock(return_value=None)
                     mock_db.initialize_schema = AsyncMock()
-                    mock_db.store_repositories = AsyncMock(return_value={
-                        "successful": 2,
-                        "failed": 0,
-                        "total": 2
-                    })
+                    mock_db.store_repositories = AsyncMock(
+                        return_value={"successful": 2, "failed": 0, "total": 2}
+                    )
 
                     mock_args.return_value.repos = 1000
                     mock_args.return_value.matrix_total = 1
