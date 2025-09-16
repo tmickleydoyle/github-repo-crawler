@@ -48,7 +48,12 @@ class GitHubClient:
         if not token or token == "dummy_token_for_validation":
             raise ValueError("GitHub token is required and must be valid")
 
-        self.graphql_url = settings.github_api_url
+        # GitHub Actions sets GITHUB_API_URL to https://api.github.com
+        # We need the GraphQL endpoint specifically
+        if settings.github_api_url == "https://api.github.com":
+            self.graphql_url = "https://api.github.com/graphql"
+        else:
+            self.graphql_url = settings.github_api_url
         logger.info(f"📍 Using GitHub API URL: {self.graphql_url}")
         self.headers = {
             "Authorization": f"Bearer {token}",
@@ -65,9 +70,9 @@ class GitHubClient:
         self._connector = aiohttp.TCPConnector(
             limit=100,
             limit_per_host=20,
-            keepalive_timeout=30,
             enable_cleanup_closed=True,
             force_close=True,  # Force close connections to avoid reuse issues
+            # Note: keepalive_timeout cannot be used with force_close=True
         )
         self._session = aiohttp.ClientSession(
             connector=self._connector,

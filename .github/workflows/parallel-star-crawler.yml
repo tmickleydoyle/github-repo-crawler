@@ -325,7 +325,10 @@ jobs:
           SELECT 'Repos:', count(*) FROM repo;
           SELECT 'Stats:', count(*) FROM repo_stats;
           SELECT 'Sample repos:';
-          SELECT id, name, owner, stars FROM repo LIMIT 5;
+          SELECT r.id, r.name, r.owner, rs.stars
+          FROM repo r
+          LEFT JOIN repo_stats rs ON r.id = rs.repo_id
+          LIMIT 5;
           EOF
 
       - name: Export job data
