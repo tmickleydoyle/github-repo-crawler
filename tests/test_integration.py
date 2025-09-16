@@ -82,7 +82,7 @@ class TestCrawlerIntegration:
 
                     mock_client.test_connection.assert_called_once()
                     mock_client.crawl.assert_called_once_with(
-                        matrix_total=1, matrix_index=0
+                        matrix_total=1, matrix_index=0, target_repos=1000
                     )
                     mock_db.initialize_schema.assert_called_once()
                     mock_db.store_repositories.assert_called_once_with(

@@ -262,7 +262,7 @@ class GitHubClient:
             )
             raise ApiError(f"Search request failed: {e}") from e
 
-    async def crawl(self, matrix_total: int = 1, matrix_index: int = 0) -> CrawlResult:
+    async def crawl(self, matrix_total: int = 1, matrix_index: int = 0, target_repos: int | None = None) -> CrawlResult:
         """
         Main crawling method using clean architecture principles.
 
@@ -274,11 +274,12 @@ class GitHubClient:
         """
         logger.info(f"🚀 Starting crawl: Matrix job {matrix_index + 1}/{matrix_total}")
         settings = get_settings()
-        logger.info(f"🎯 Target: {settings.crawler_max_repos} repositories")
+        if target_repos is None:
+            target_repos = settings.crawler_max_repos
+        logger.info(f"🎯 Target: {target_repos} repositories")
 
         repositories: list[Repository] = []
         repository_ids: set[int] = set()
-        target_repos = settings.crawler_max_repos
 
         search_queries = self.search_strategy.generate_queries(
             matrix_index, matrix_total
