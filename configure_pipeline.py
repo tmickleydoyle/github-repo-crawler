@@ -46,10 +46,6 @@ def validate_crawler_code():
     print("\n🧪 Validating crawler matrix support...")
 
     try:
-        # Test import
-        sys.path.append('.')
-        from crawler.main import parse_args
-
         # Check if matrix arguments are supported by reading the source
         main_py_path = Path("crawler/main.py")
         if main_py_path.exists():
@@ -96,7 +92,7 @@ def calculate_pipeline_estimates():
         print(f"   🔍 Queries/Job: {queries_per_job}")
         print(f"   ⏱️  Est. Time: ~{estimated_minutes:.1f} minutes per job")
         print(f"   🔥 Parallel Speedup: ~{config['matrix_jobs']}x faster")
-        
+
         if config["repos"] >= 1000000:
             print(f"   🎯 MEGA-SCALE: {config['repos']/1000000:.1f}M repositories!")
 

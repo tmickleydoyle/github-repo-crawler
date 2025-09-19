@@ -265,7 +265,7 @@ class SimpleSearchStrategy(SearchStrategy):
     """Ultra-aggressive search strategy designed to maximize repository collection
     by creating extremely granular search partitions that work around GitHub's
     1000-result API limit.
-    
+
     This strategy generates hundreds of specific queries per matrix job to achieve
     5M+ repository discovery by exhaustively partitioning GitHub's search space.
     """
@@ -275,7 +275,7 @@ class SimpleSearchStrategy(SearchStrategy):
     ) -> list[SearchQuery]:
         """Generate ultra-partitioned search queries optimized for maximum
         repository discovery.
-        
+
         For 5M repositories across 200 matrix jobs, we need ~25k repos per job.
         Each query can yield max 1000 results, so we need 25+ diverse queries per job.
         """
