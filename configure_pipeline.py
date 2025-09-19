@@ -70,20 +70,22 @@ def validate_crawler_code():
 
 def calculate_pipeline_estimates():
     """Calculate timing and resource estimates for different configurations"""
-    print("\n📊 Pipeline Configuration Estimates:")
-    print("=====================================")
+    print("\n📊 Pipeline Configuration Estimates (Updated for 5M Scaling):")
+    print("===========================================================")
 
     configurations = [
-        {"name": "Test Run", "repos": 1000, "matrix_jobs": 5},
-        {"name": "Medium Run", "repos": 10000, "matrix_jobs": 20},
-        {"name": "Production Run", "repos": 100000, "matrix_jobs": 50},
-        {"name": "Max Parallel", "repos": 100000, "matrix_jobs": 100}
+        {"name": "Test Run", "repos": 5000, "matrix_jobs": 5},
+        {"name": "Medium Run", "repos": 50000, "matrix_jobs": 20},
+        {"name": "Large Run", "repos": 500000, "matrix_jobs": 50},
+        {"name": "Production Run (5M)", "repos": 5000000, "matrix_jobs": 200},
+        {"name": "Max Parallel (5M)", "repos": 5000000, "matrix_jobs": 250}
     ]
 
     for config in configurations:
         repos_per_job = config["repos"] / config["matrix_jobs"]
-        # Estimate ~2-3 API calls per repo for stars-only mode
-        api_calls_per_job = repos_per_job * 2.5
+        # Updated: ~30 queries per job, each potentially yielding 1000 results
+        queries_per_job = 30
+        api_calls_per_job = queries_per_job * 10  # ~10 API calls per query (pagination)
         # GitHub rate limit is 5000/hour
         estimated_minutes = (api_calls_per_job / 5000) * 60
 
@@ -91,8 +93,12 @@ def calculate_pipeline_estimates():
         print(f"   📊 Total Repos: {config['repos']:,}")
         print(f"   ⚡ Matrix Jobs: {config['matrix_jobs']}")
         print(f"   📈 Repos/Job: ~{repos_per_job:.0f}")
+        print(f"   🔍 Queries/Job: {queries_per_job}")
         print(f"   ⏱️  Est. Time: ~{estimated_minutes:.1f} minutes per job")
         print(f"   🔥 Parallel Speedup: ~{config['matrix_jobs']}x faster")
+        
+        if config["repos"] >= 1000000:
+            print(f"   🎯 MEGA-SCALE: {config['repos']/1000000:.1f}M repositories!")
 
 def generate_workflow_configs():
     """Generate example workflow configuration files"""
@@ -100,19 +106,29 @@ def generate_workflow_configs():
 
     configs = {
         "test.json": {
-            "target_repos": "1000",
+            "target_repos": "5000",
             "matrix_size": "5",
-            "description": "Quick test with 1K repos across 5 jobs"
+            "description": "Quick test with 5K repos across 5 jobs"
         },
         "medium.json": {
-            "target_repos": "10000",
+            "target_repos": "50000",
             "matrix_size": "20",
-            "description": "Medium run with 10K repos across 20 jobs"
+            "description": "Medium run with 50K repos across 20 jobs"
         },
-        "production.json": {
-            "target_repos": "100000",
+        "large.json": {
+            "target_repos": "500000",
             "matrix_size": "50",
-            "description": "Full production run with 100K repos across 50 jobs"
+            "description": "Large run with 500K repos across 50 jobs"
+        },
+        "production-5m.json": {
+            "target_repos": "5000000",
+            "matrix_size": "200",
+            "description": "MEGA-SCALE: 5M repositories across 200 jobs"
+        },
+        "ultra-5m.json": {
+            "target_repos": "5000000",
+            "matrix_size": "250",
+            "description": "ULTRA-SCALE: 5M repositories across 250 jobs for faster completion"
         }
     }
 

@@ -44,13 +44,13 @@ class Settings(BaseSettings):
         default=2.0, alias="GITHUB_RETRY_BACKOFF_FACTOR"
     )
 
-    # Crawler settings - optimized for performance
+    # Crawler settings - optimized for 5M repository scaling
     crawler_batch_size: int = Field(
-        default=500, alias="BATCH_SIZE"
+        default=1000, alias="BATCH_SIZE"
     )  # Increased for better batching
-    crawler_max_repos: int = Field(default=4000, alias="MAX_REPOS")
+    crawler_max_repos: int = Field(default=25000, alias="MAX_REPOS")  # 25k per matrix job
     crawler_total_matrix_jobs: int = Field(default=200, alias="TOTAL_MATRIX_JOBS")
-    crawler_total_target_repos: int = Field(default=800000, alias="TOTAL_TARGET_REPOS")
+    crawler_total_target_repos: int = Field(default=5000000, alias="TOTAL_TARGET_REPOS")  # 5M target
     crawler_concurrent_requests: int = Field(
         default=15, alias="CONCURRENT_REQUESTS"
     )  # Higher for better throughput

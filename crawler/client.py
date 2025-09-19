@@ -22,7 +22,7 @@ from .domain import (
     SearchQuery,
     transform_github_response,
 )
-from .search_strategy import SimpleSearchStrategy
+from .ultra_search_strategy import UltraSearchStrategy
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -60,7 +60,7 @@ class GitHubClient:
             "Accept": "application/vnd.github.v4+json",
             "User-Agent": "GitHub-Crawler/1.0",
         }
-        self.search_strategy = SimpleSearchStrategy()
+        self.search_strategy = UltraSearchStrategy()
         self._connector: aiohttp.TCPConnector | None = None
         self._session: aiohttp.ClientSession | None = None
         logger.info(f"✅ GitHub client initialized with token length: {len(token)}")
@@ -368,9 +368,10 @@ class GitHubClient:
         """Process a single search query with pagination."""
         after_cursor = None
         pages_processed = 0
-        max_pages = 10
+        # Remove max_pages limit to allow full exhaustion of each query's results
+        # GitHub Search API has a hard limit of 1000 results per query regardless of pagination
 
-        while len(repositories) < target_repos and pages_processed < max_pages:
+        while len(repositories) < target_repos:
             try:
                 result = await self.search_repositories(search_query, after_cursor)
 
