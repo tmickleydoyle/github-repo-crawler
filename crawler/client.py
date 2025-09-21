@@ -110,11 +110,8 @@ class GitHubClient:
         """Async context manager exit."""
         # Save state if using stateful strategy
         if self.use_state and self.state_manager and self.state:
-            try:
-                gist_id = await self.state_manager.save_state(self.state)
-                logger.info(f"Saved state to Gist: {gist_id}")
-            except Exception as e:
-                logger.error(f"Failed to save state: {e}")
+            # Note: Gist save logic removed as requested
+            logger.info("State tracking enabled but Gist save disabled")
 
         if self._session:
             await self._session.close()
