@@ -69,7 +69,9 @@ async def generate_report() -> None:
 
         # Summary
         summary = report["summary"]
-        logger.info(f"Total Unique Repositories: {summary['total_unique_repositories']:,}")
+        logger.info(
+            f"Total Unique Repositories: {summary['total_unique_repositories']:,}"
+        )
         logger.info(f"Total Repositories Seen: {summary['total_repositories_seen']:,}")
         logger.info(f"Completion: {summary['completion_percentage']}%")
         logger.info(f"Estimated Total: {summary['estimated_total']:,}")
@@ -97,7 +99,7 @@ async def generate_report() -> None:
         logger.info("")
         logger.info("RECOMMENDATIONS:")
         logger.info(f"  Next Matrix Size: {rec['next_matrix_size']}")
-        if rec['gist_id']:
+        if rec["gist_id"]:
             logger.info(f"  State Gist ID: {rec['gist_id']}")
         else:
             logger.info("  ⚠️ No Gist ID configured - state will not persist!")
@@ -105,8 +107,8 @@ async def generate_report() -> None:
 
         # Rate limit recommendations
         scheduler = RateLimitScheduler()
-        if partitions['pending'] > 0:
-            config = scheduler.suggest_workflow_config(partitions['pending'])
+        if partitions["pending"] > 0:
+            config = scheduler.suggest_workflow_config(partitions["pending"])
             logger.info("")
             logger.info("NEXT RUN CONFIGURATION:")
             logger.info(f"  Matrix Size: {config['matrix_size']}")

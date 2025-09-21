@@ -57,8 +57,12 @@ class Settings(BaseSettings):
     crawler_request_timeout: int = Field(default=30, alias="REQUEST_TIMEOUT")
 
     # State management settings
-    crawler_state_gist_id: str | None = Field(default=None, alias="CRAWLER_STATE_GIST_ID")
-    crawler_use_stateful_strategy: bool = Field(default=True, alias="USE_STATEFUL_STRATEGY")
+    crawler_state_gist_id: str | None = Field(
+        default=None, alias="CRAWLER_STATE_GIST_ID"
+    )
+    crawler_use_stateful_strategy: bool = Field(
+        default=True, alias="USE_STATEFUL_STRATEGY"
+    )
 
     # Logging settings
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")

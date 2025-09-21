@@ -50,7 +50,9 @@ class CrawlerState:
             "version": self.version,
             "total_repositories": self.total_repositories,
             "total_unique_repositories": len(self.total_unique_repositories),
-            "unique_repo_ids": list(self.total_unique_repositories)[:1000],  # Sample for size
+            "unique_repo_ids": list(self.total_unique_repositories)[
+                :1000
+            ],  # Sample for size
             "partitions": {k: asdict(v) for k, v in self.partitions.items()},
             "last_updated": self.last_updated,
             "workflow_runs": self.workflow_runs[-50:],  # Keep last 50 runs
@@ -103,7 +105,9 @@ class StateManager:
                 url = f"https://api.github.com/gists/{self.gist_id}"
                 async with session.get(url, headers=self.headers) as resp:
                     if resp.status == 404:
-                        logger.warning(f"Gist {self.gist_id} not found, creating new state")
+                        logger.warning(
+                            f"Gist {self.gist_id} not found, creating new state"
+                        )
                         return CrawlerState()
 
                     resp.raise_for_status()
@@ -119,7 +123,9 @@ class StateManager:
                         )
                         return state
                     else:
-                        logger.warning("State file not found in Gist, creating new state")
+                        logger.warning(
+                            "State file not found in Gist, creating new state"
+                        )
                         return CrawlerState()
 
         except Exception as e:
@@ -135,11 +141,7 @@ class StateManager:
         state.last_updated = datetime.utcnow().isoformat()
         state_json = json.dumps(state.to_dict(), indent=2)
 
-        files = {
-            self.state_filename: {
-                "content": state_json
-            }
-        }
+        files = {self.state_filename: {"content": state_json}}
 
         try:
             async with aiohttp.ClientSession() as session:
@@ -147,7 +149,9 @@ class StateManager:
                     # Update existing gist
                     url = f"https://api.github.com/gists/{self.gist_id}"
                     payload = {"files": files}
-                    async with session.patch(url, headers=self.headers, json=payload) as resp:
+                    async with session.patch(
+                        url, headers=self.headers, json=payload
+                    ) as resp:
                         resp.raise_for_status()
                         logger.info(f"Updated state in Gist {self.gist_id}")
                         return self.gist_id
@@ -157,14 +161,18 @@ class StateManager:
                     payload = {
                         "description": "GitHub Crawler State - Automated tracking of repository discovery",
                         "public": False,
-                        "files": files
+                        "files": files,
                     }
-                    async with session.post(url, headers=self.headers, json=payload) as resp:
+                    async with session.post(
+                        url, headers=self.headers, json=payload
+                    ) as resp:
                         resp.raise_for_status()
                         data = await resp.json()
                         self.gist_id = data["id"]
                         logger.info(f"Created new state Gist: {self.gist_id}")
-                        logger.info("⚠️ Add CRAWLER_STATE_GIST_ID to your repository secrets!")
+                        logger.info(
+                            "⚠️ Add CRAWLER_STATE_GIST_ID to your repository secrets!"
+                        )
                         return self.gist_id
 
         except Exception as e:
@@ -172,11 +180,7 @@ class StateManager:
             raise
 
     async def record_workflow_run(
-        self,
-        state: CrawlerState,
-        run_id: str,
-        matrix_total: int,
-        target_repos: int
+        self, state: CrawlerState, run_id: str, matrix_total: int, target_repos: int
     ) -> None:
         """Record a workflow run in the state."""
         run_info = {
@@ -188,12 +192,13 @@ class StateManager:
         }
         state.workflow_runs.append(run_info)
 
-    def get_next_partition(self, state: CrawlerState, matrix_index: int, matrix_total: int) -> SearchSpacePartition | None:
+    def get_next_partition(
+        self, state: CrawlerState, matrix_index: int, matrix_total: int
+    ) -> SearchSpacePartition | None:
         """Get the next partition for a matrix job to work on."""
         # Find pending partitions
         pending_partitions = [
-            p for p in state.partitions.values()
-            if p.status == "pending"
+            p for p in state.partitions.values() if p.status == "pending"
         ]
 
         if not pending_partitions:
@@ -212,7 +217,7 @@ class StateManager:
         state: CrawlerState,
         partition_id: str,
         repositories_found: int,
-        exhausted: bool = False
+        exhausted: bool = False,
     ) -> None:
         """Mark a partition as complete or exhausted."""
         if partition_id in state.partitions:

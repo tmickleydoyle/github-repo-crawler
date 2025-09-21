@@ -59,7 +59,7 @@ class SearchStrategy:
     def _get_partitioned_queries(
         self, matrix_index: int, matrix_total: int
     ) -> list[SearchQuery]:
-        """Generate queries partitioned across matrix jobs with better distribution."""
+        """Generate queries partitioned across matrix jobs with NO overlap."""
 
         languages = [
             "javascript",
@@ -146,11 +146,70 @@ class SearchStrategy:
             "..2019-12-31",
         ]
 
-        partition_strategy = matrix_index % 4
+        topics = [
+            "api",
+            "cli",
+            "framework",
+            "library",
+            "tool",
+            "web",
+            "mobile",
+            "game",
+            "machine-learning",
+            "data",
+            "security",
+            "blockchain",
+            "iot",
+            "ai",
+            "database",
+            "monitoring",
+            "testing",
+            "automation",
+            "devops",
+            "cloud",
+        ]
 
-        if partition_strategy == 0:
-            lang_idx = matrix_index % len(languages)
-            star_idx = (matrix_index // len(languages)) % len(star_ranges)
+        special_searches = [
+            (
+                "is:public fork:false archived:false stars:1..20 sort:updated",
+                "Active non-forks",
+            ),
+            ("is:public has:readme stars:1..50 sort:updated", "Documented repos"),
+            ("is:public size:>100 stars:1..30 sort:updated", "Larger repos"),
+            (
+                "is:public pushed:>2024-01-01 stars:1..15 sort:updated",
+                "Recently active",
+            ),
+            ("is:public license:mit stars:1..100 sort:updated", "MIT licensed"),
+            (
+                "is:public license:apache-2.0 stars:1..80 sort:updated",
+                "Apache licensed",
+            ),
+            ("is:public has:issues stars:1..40 sort:updated", "With issues"),
+            ("is:public has:wiki stars:1..60 sort:updated", "With documentation"),
+        ]
+
+        # Calculate total combinations for unique partitioning
+        strategy_0_combinations = len(languages) * len(star_ranges)  # 41 * 25 = 1025
+        strategy_1_combinations = len(time_ranges) * len(star_ranges)  # 10 * 25 = 250
+        strategy_2_combinations = len(topics) * len(star_ranges)  # 20 * 25 = 500
+        strategy_3_combinations = len(special_searches)  # 8
+
+        total_combinations = (
+            strategy_0_combinations
+            + strategy_1_combinations
+            + strategy_2_combinations
+            + strategy_3_combinations
+        )  # 1783 total combinations
+
+        # Map matrix_index to a unique combination across the entire search space
+        combination_index = (matrix_index * total_combinations) // matrix_total
+
+        # Determine which strategy and specific combination
+        if combination_index < strategy_0_combinations:
+            # Strategy 0: Language + Stars
+            lang_idx = combination_index % len(languages)
+            star_idx = combination_index // len(languages)
 
             language = languages[lang_idx]
             stars = star_ranges[star_idx]
@@ -162,9 +221,11 @@ class SearchStrategy:
             ]
             description = f"Lang+Stars: {language}, {stars} stars"
 
-        elif partition_strategy == 1:
-            time_idx = matrix_index % len(time_ranges)
-            star_idx = (matrix_index // len(time_ranges)) % len(star_ranges)
+        elif combination_index < strategy_0_combinations + strategy_1_combinations:
+            # Strategy 1: Time + Stars
+            adjusted_index = combination_index - strategy_0_combinations
+            time_idx = adjusted_index % len(time_ranges)
+            star_idx = adjusted_index // len(time_ranges)
 
             time_range = time_ranges[time_idx]
             stars = star_ranges[star_idx]
@@ -176,32 +237,18 @@ class SearchStrategy:
             ]
             description = f"Time+Stars: {time_range}, {stars} stars"
 
-        elif partition_strategy == 2:
-            topics = [
-                "api",
-                "cli",
-                "framework",
-                "library",
-                "tool",
-                "web",
-                "mobile",
-                "game",
-                "machine-learning",
-                "data",
-                "security",
-                "blockchain",
-                "iot",
-                "ai",
-                "database",
-                "monitoring",
-                "testing",
-                "automation",
-                "devops",
-                "cloud",
-            ]
-
-            topic_idx = matrix_index % len(topics)
-            star_idx = (matrix_index // len(topics)) % len(star_ranges)
+        elif (
+            combination_index
+            < strategy_0_combinations
+            + strategy_1_combinations
+            + strategy_2_combinations
+        ):
+            # Strategy 2: Topic + Stars
+            adjusted_index = (
+                combination_index - strategy_0_combinations - strategy_1_combinations
+            )
+            topic_idx = adjusted_index % len(topics)
+            star_idx = adjusted_index // len(topics)
 
             topic = topics[topic_idx]
             stars = star_ranges[star_idx]
@@ -214,27 +261,14 @@ class SearchStrategy:
             description = f"Topic+Stars: {topic}, {stars} stars"
 
         else:
-            special_searches = [
-                (
-                    "is:public fork:false archived:false stars:1..20 sort:updated",
-                    "Active non-forks",
-                ),
-                ("is:public has:readme stars:1..50 sort:updated", "Documented repos"),
-                ("is:public size:>100 stars:1..30 sort:updated", "Larger repos"),
-                (
-                    "is:public pushed:>2024-01-01 stars:1..15 sort:updated",
-                    "Recently active",
-                ),
-                ("is:public license:mit stars:1..100 sort:updated", "MIT licensed"),
-                (
-                    "is:public license:apache-2.0 stars:1..80 sort:updated",
-                    "Apache licensed",
-                ),
-                ("is:public has:issues stars:1..40 sort:updated", "With issues"),
-                ("is:public has:wiki stars:1..60 sort:updated", "With documentation"),
-            ]
-
-            special_idx = matrix_index % len(special_searches)
+            # Strategy 3: Special searches
+            adjusted_index = (
+                combination_index
+                - strategy_0_combinations
+                - strategy_1_combinations
+                - strategy_2_combinations
+            )
+            special_idx = adjusted_index % len(special_searches)
             query, desc = special_searches[special_idx]
 
             primary_query = query
@@ -464,11 +498,103 @@ class SimpleSearchStrategy(SearchStrategy):
             "angular",
         ]
 
-        partition_strategy = matrix_index % 6
+        special_searches = [
+            (
+                "is:public fork:false archived:false has:readme "
+                "stars:0..1 sort:updated",
+                "Active non-forks, documented, 0-1 stars",
+            ),
+            (
+                "is:public fork:false archived:false has:readme "
+                "stars:2..3 sort:updated",
+                "Active non-forks, documented, 2-3 stars",
+            ),
+            (
+                "is:public fork:false archived:false has:readme "
+                "stars:4..5 sort:updated",
+                "Active non-forks, documented, 4-5 stars",
+            ),
+            (
+                "is:public fork:false archived:false has:readme "
+                "stars:6..8 sort:updated",
+                "Active non-forks, documented, 6-8 stars",
+            ),
+            (
+                "is:public fork:false archived:false has:readme "
+                "stars:9..12 sort:updated",
+                "Active non-forks, documented, 9-12 stars",
+            ),
+            (
+                "is:public pushed:>2024-06-01 stars:0..2 sort:updated",
+                "Recently pushed, 0-2 stars",
+            ),
+            (
+                "is:public pushed:>2024-06-01 stars:3..5 sort:updated",
+                "Recently pushed, 3-5 stars",
+            ),
+            (
+                "is:public pushed:>2024-06-01 stars:6..10 sort:updated",
+                "Recently pushed, 6-10 stars",
+            ),
+            (
+                "is:public has:issues has:wiki stars:1..15 sort:updated",
+                "With issues and wiki, 1-15 stars",
+            ),
+            (
+                "is:public good-first-issues:>0 stars:1..25 sort:updated",
+                "Good first issues, 1-25 stars",
+            ),
+            (
+                "is:public help-wanted-issues:>0 stars:1..20 sort:updated",
+                "Help wanted issues, 1-20 stars",
+            ),
+            (
+                "is:public size:<100 stars:1..8 sort:updated",
+                "Small repos, 1-8 stars",
+            ),
+            (
+                "is:public size:100..1000 stars:1..12 sort:updated",
+                "Medium repos, 1-12 stars",
+            ),
+            (
+                "is:public template:true stars:1..50 sort:updated",
+                "Template repos, 1-50 stars",
+            ),
+            (
+                "is:public mirror:false stars:0..3 sort:updated",
+                "Non-mirror repos, 0-3 stars",
+            ),
+        ]
 
-        if partition_strategy == 0:
-            lang_idx = matrix_index % len(languages)
-            star_idx = (matrix_index // len(languages)) % len(star_ranges)
+        # Calculate total combinations for unique partitioning
+        strategy_0_combinations = len(languages) * len(star_ranges)  # 48 * 25 = 1200
+        strategy_1_combinations = len(time_ranges) * len(star_ranges)  # 32 * 25 = 800
+        strategy_2_combinations = (
+            len(sizes) * len(languages) * len(star_ranges)
+        )  # 8 * 48 * 25 = 9600
+        strategy_3_combinations = len(topics) * len(star_ranges)  # 30 * 25 = 750
+        strategy_4_combinations = (
+            len(licenses) * len(languages) * len(star_ranges)
+        )  # 8 * 48 * 25 = 9600
+        strategy_5_combinations = len(special_searches)  # 15
+
+        total_combinations = (
+            strategy_0_combinations
+            + strategy_1_combinations
+            + strategy_2_combinations
+            + strategy_3_combinations
+            + strategy_4_combinations
+            + strategy_5_combinations
+        )  # 21965 total combinations
+
+        # Map matrix_index to a unique combination across the entire search space
+        combination_index = (matrix_index * total_combinations) // matrix_total
+
+        # Determine which strategy and specific combination
+        if combination_index < strategy_0_combinations:
+            # Strategy 0: Language + Stars
+            lang_idx = combination_index % len(languages)
+            star_idx = combination_index // len(languages)
 
             language = languages[lang_idx]
             stars = star_ranges[star_idx]
@@ -489,9 +615,11 @@ class SimpleSearchStrategy(SearchStrategy):
                 ),
             ]
 
-        elif partition_strategy == 1:
-            time_idx = matrix_index % len(time_ranges)
-            star_idx = (matrix_index // len(time_ranges)) % len(star_ranges)
+        elif combination_index < strategy_0_combinations + strategy_1_combinations:
+            # Strategy 1: Time + Stars
+            adjusted_index = combination_index - strategy_0_combinations
+            time_idx = adjusted_index % len(time_ranges)
+            star_idx = adjusted_index // len(time_ranges)
 
             time_range = time_ranges[time_idx]
             stars = star_ranges[star_idx]
@@ -511,12 +639,19 @@ class SimpleSearchStrategy(SearchStrategy):
                 ),
             ]
 
-        elif partition_strategy == 2:
-            size_idx = matrix_index % len(sizes)
-            lang_idx = (matrix_index // len(sizes)) % len(languages)
-            star_idx = (matrix_index // (len(sizes) * len(languages))) % len(
-                star_ranges
+        elif (
+            combination_index
+            < strategy_0_combinations
+            + strategy_1_combinations
+            + strategy_2_combinations
+        ):
+            # Strategy 2: Size + Language + Stars
+            adjusted_index = (
+                combination_index - strategy_0_combinations - strategy_1_combinations
             )
+            size_idx = adjusted_index % len(sizes)
+            lang_idx = (adjusted_index // len(sizes)) % len(languages)
+            star_idx = adjusted_index // (len(sizes) * len(languages))
 
             size = sizes[size_idx]
             language = languages[lang_idx]
@@ -539,9 +674,22 @@ class SimpleSearchStrategy(SearchStrategy):
                 ),
             ]
 
-        elif partition_strategy == 3:
-            topic_idx = matrix_index % len(topics)
-            star_idx = (matrix_index // len(topics)) % len(star_ranges)
+        elif (
+            combination_index
+            < strategy_0_combinations
+            + strategy_1_combinations
+            + strategy_2_combinations
+            + strategy_3_combinations
+        ):
+            # Strategy 3: Topic + Stars
+            adjusted_index = (
+                combination_index
+                - strategy_0_combinations
+                - strategy_1_combinations
+                - strategy_2_combinations
+            )
+            topic_idx = adjusted_index % len(topics)
+            star_idx = adjusted_index // len(topics)
 
             topic = topics[topic_idx]
             stars = star_ranges[star_idx]
@@ -559,12 +707,25 @@ class SimpleSearchStrategy(SearchStrategy):
                 ),
             ]
 
-        elif partition_strategy == 4:
-            license_idx = matrix_index % len(licenses)
-            lang_idx = (matrix_index // len(licenses)) % len(languages)
-            star_idx = (matrix_index // (len(licenses) * len(languages))) % len(
-                star_ranges
+        elif (
+            combination_index
+            < strategy_0_combinations
+            + strategy_1_combinations
+            + strategy_2_combinations
+            + strategy_3_combinations
+            + strategy_4_combinations
+        ):
+            # Strategy 4: License + Language + Stars
+            adjusted_index = (
+                combination_index
+                - strategy_0_combinations
+                - strategy_1_combinations
+                - strategy_2_combinations
+                - strategy_3_combinations
             )
+            license_idx = adjusted_index % len(licenses)
+            lang_idx = (adjusted_index // len(licenses)) % len(languages)
+            star_idx = adjusted_index // (len(licenses) * len(languages))
 
             license_type = licenses[license_idx]
             language = languages[lang_idx]
@@ -589,75 +750,16 @@ class SimpleSearchStrategy(SearchStrategy):
             ]
 
         else:
-            special_searches = [
-                (
-                    "is:public fork:false archived:false has:readme "
-                    "stars:0..1 sort:updated",
-                    "Active non-forks, documented, 0-1 stars",
-                ),
-                (
-                    "is:public fork:false archived:false has:readme "
-                    "stars:2..3 sort:updated",
-                    "Active non-forks, documented, 2-3 stars",
-                ),
-                (
-                    "is:public fork:false archived:false has:readme "
-                    "stars:4..5 sort:updated",
-                    "Active non-forks, documented, 4-5 stars",
-                ),
-                (
-                    "is:public fork:false archived:false has:readme "
-                    "stars:6..8 sort:updated",
-                    "Active non-forks, documented, 6-8 stars",
-                ),
-                (
-                    "is:public fork:false archived:false has:readme "
-                    "stars:9..12 sort:updated",
-                    "Active non-forks, documented, 9-12 stars",
-                ),
-                (
-                    "is:public pushed:>2024-06-01 stars:0..2 sort:updated",
-                    "Recently pushed, 0-2 stars",
-                ),
-                (
-                    "is:public pushed:>2024-06-01 stars:3..5 sort:updated",
-                    "Recently pushed, 3-5 stars",
-                ),
-                (
-                    "is:public pushed:>2024-06-01 stars:6..10 sort:updated",
-                    "Recently pushed, 6-10 stars",
-                ),
-                (
-                    "is:public has:issues has:wiki stars:1..15 sort:updated",
-                    "With issues and wiki, 1-15 stars",
-                ),
-                (
-                    "is:public good-first-issues:>0 stars:1..25 sort:updated",
-                    "Good first issues, 1-25 stars",
-                ),
-                (
-                    "is:public help-wanted-issues:>0 stars:1..20 sort:updated",
-                    "Help wanted issues, 1-20 stars",
-                ),
-                (
-                    "is:public size:<100 stars:1..8 sort:updated",
-                    "Small repos, 1-8 stars",
-                ),
-                (
-                    "is:public size:100..1000 stars:1..12 sort:updated",
-                    "Medium repos, 1-12 stars",
-                ),
-                (
-                    "is:public template:true stars:1..50 sort:updated",
-                    "Template repos, 1-50 stars",
-                ),
-                (
-                    "is:public mirror:false stars:0..3 sort:updated",
-                    "Non-mirror repos, 0-3 stars",
-                ),
-            ]
-
-            special_idx = matrix_index % len(special_searches)
+            # Strategy 5: Special searches
+            adjusted_index = (
+                combination_index
+                - strategy_0_combinations
+                - strategy_1_combinations
+                - strategy_2_combinations
+                - strategy_3_combinations
+                - strategy_4_combinations
+            )
+            special_idx = adjusted_index % len(special_searches)
             query, description = special_searches[special_idx]
 
             queries = [

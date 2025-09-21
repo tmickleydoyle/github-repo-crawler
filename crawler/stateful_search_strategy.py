@@ -6,10 +6,9 @@ of the GitHub repository space without overlap across workflow runs.
 """
 
 import logging
-from typing import Optional
 
 from .domain import SearchQuery
-from .search_space import SearchPartition, SearchSpaceGenerator
+from .search_space import SearchSpaceGenerator
 from .state_manager import CrawlerState, SearchSpacePartition, StateManager
 
 logger = logging.getLogger(__name__)
@@ -23,7 +22,9 @@ class StatefulSearchStrategy:
         self.state_manager = state_manager
         self.space_generator = SearchSpaceGenerator()
 
-    async def initialize_partitions(self, state: CrawlerState, max_partitions: int = 10000) -> None:
+    async def initialize_partitions(
+        self, state: CrawlerState, max_partitions: int = 10000
+    ) -> None:
         """Initialize search partitions if not already present."""
         if not state.partitions:
             logger.info(f"Initializing search partitions (max: {max_partitions})")
@@ -38,13 +39,15 @@ class StatefulSearchStrategy:
                     partition_id=partition.partition_id,
                     query=partition.query,
                     status="pending",
-                    repositories_found=0
+                    repositories_found=0,
                 )
 
             # Add more diverse partitions if room
             if len(state.partitions) < max_partitions:
                 remaining = max_partitions - len(state.partitions)
-                for i, partition in enumerate(self.space_generator.generate_all_partitions()):
+                for i, partition in enumerate(
+                    self.space_generator.generate_all_partitions()
+                ):
                     if i >= remaining:
                         break
                     if partition.partition_id not in state.partitions:
@@ -52,7 +55,7 @@ class StatefulSearchStrategy:
                             partition_id=partition.partition_id,
                             query=partition.query,
                             status="pending",
-                            repositories_found=0
+                            repositories_found=0,
                         )
 
             logger.info(f"Initialized {len(state.partitions)} search partitions")
@@ -63,7 +66,7 @@ class StatefulSearchStrategy:
         state: CrawlerState,
         matrix_index: int,
         matrix_total: int,
-        queries_per_job: int = 5
+        queries_per_job: int = 5,
     ) -> list[SearchQuery]:
         """Get search queries for a specific matrix job."""
         queries = []
@@ -74,23 +77,23 @@ class StatefulSearchStrategy:
 
         # Get pending and in-progress partitions
         pending_partitions = [
-            p for p in state.partitions.values()
-            if p.status == "pending"
+            p for p in state.partitions.values() if p.status == "pending"
         ]
 
         in_progress_partitions = [
-            p for p in state.partitions.values()
-            if p.status == "in_progress"
+            p for p in state.partitions.values() if p.status == "in_progress"
         ]
 
         # Retry in-progress partitions (might have failed)
-        retryable = in_progress_partitions[:queries_per_job//2]
+        retryable = in_progress_partitions[: queries_per_job // 2]
         for partition in retryable:
-            queries.append(SearchQuery(
-                query_string=partition.query,
-                description=f"Retry: {partition.partition_id}",
-                expected_results=500
-            ))
+            queries.append(
+                SearchQuery(
+                    query_string=partition.query,
+                    description=f"Retry: {partition.partition_id}",
+                    expected_results=500,
+                )
+            )
             partition.error_count += 1
 
         # Assign new pending partitions
@@ -106,11 +109,13 @@ class StatefulSearchStrategy:
             assigned_partitions = pending_partitions[start_idx:end_idx]
 
             for partition in assigned_partitions:
-                queries.append(SearchQuery(
-                    query_string=partition.query,
-                    description=f"Partition: {partition.partition_id}",
-                    expected_results=500
-                ))
+                queries.append(
+                    SearchQuery(
+                        query_string=partition.query,
+                        description=f"Partition: {partition.partition_id}",
+                        expected_results=500,
+                    )
+                )
                 # Mark as in-progress
                 partition.status = "in_progress"
                 partition.started_at = partition.started_at or state.last_updated
@@ -118,11 +123,13 @@ class StatefulSearchStrategy:
         # If no queries assigned, try to find any available work
         if not queries and pending_partitions:
             for partition in pending_partitions[:queries_per_job]:
-                queries.append(SearchQuery(
-                    query_string=partition.query,
-                    description=f"Fallback: {partition.partition_id}",
-                    expected_results=500
-                ))
+                queries.append(
+                    SearchQuery(
+                        query_string=partition.query,
+                        description=f"Fallback: {partition.partition_id}",
+                        expected_results=500,
+                    )
+                )
                 partition.status = "in_progress"
                 partition.started_at = state.last_updated
 
@@ -138,7 +145,7 @@ class StatefulSearchStrategy:
         state: CrawlerState,
         query: str,
         repositories_found: int,
-        exhausted: bool = False
+        exhausted: bool = False,
     ) -> None:
         """Mark a query/partition as complete."""
         # Find partition by query
@@ -159,7 +166,9 @@ class StatefulSearchStrategy:
         """Get crawling statistics from state."""
         total_partitions = len(state.partitions)
         pending = sum(1 for p in state.partitions.values() if p.status == "pending")
-        in_progress = sum(1 for p in state.partitions.values() if p.status == "in_progress")
+        in_progress = sum(
+            1 for p in state.partitions.values() if p.status == "in_progress"
+        )
         completed = sum(1 for p in state.partitions.values() if p.status == "completed")
         exhausted = sum(1 for p in state.partitions.values() if p.status == "exhausted")
 
@@ -167,7 +176,9 @@ class StatefulSearchStrategy:
 
         # Estimate completion
         processed = completed + exhausted
-        completion_pct = (processed / total_partitions * 100) if total_partitions > 0 else 0
+        completion_pct = (
+            (processed / total_partitions * 100) if total_partitions > 0 else 0
+        )
 
         # Estimate total repositories (based on average)
         if processed > 0:
@@ -186,7 +197,7 @@ class StatefulSearchStrategy:
             "unique_repositories": len(state.total_unique_repositories),
             "completion_percentage": round(completion_pct, 2),
             "estimated_total_repositories": estimated_total,
-            "workflow_runs": len(state.workflow_runs)
+            "workflow_runs": len(state.workflow_runs),
         }
 
     def suggest_matrix_size(self, state: CrawlerState) -> int:

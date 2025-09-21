@@ -37,7 +37,7 @@ class RateLimitScheduler:
         self,
         total_partitions: int,
         pending_partitions: int,
-        target_total_repos: int = 1000000
+        target_total_repos: int = 1000000,
     ) -> RateLimitSchedule:
         """Calculate optimal crawling schedule based on rate limits."""
 
@@ -80,7 +80,9 @@ class RateLimitScheduler:
 
         # Calculate runs needed
         if can_complete_in_hour:
-            runs_needed = max(1, pending_partitions // (matrix_size * partitions_per_job))
+            runs_needed = max(
+                1, pending_partitions // (matrix_size * partitions_per_job)
+            )
         else:
             # Need multiple runs to stay within rate limit
             partitions_per_run = partitions_per_hour
@@ -103,10 +105,12 @@ class RateLimitScheduler:
             can_complete_in_hour=can_complete_in_hour,
             runs_needed=runs_needed,
             hours_between_runs=hours_between_runs,
-            schedule=schedule
+            schedule=schedule,
         )
 
-    def _generate_cron_schedule(self, runs_needed: int, hours_between: float) -> list[str]:
+    def _generate_cron_schedule(
+        self, runs_needed: int, hours_between: float
+    ) -> list[str]:
         """Generate cron schedule for workflow runs."""
         schedule = []
 
@@ -118,7 +122,7 @@ class RateLimitScheduler:
             hour_increment = max(3, int(hours_between))
             for i in range(min(runs_needed, 24 // hour_increment)):
                 hour = (i * hour_increment) % 24
-                schedule.append(f"0 {hour} * * *  # Run {i+1} at {hour:02d}:00")
+                schedule.append(f"0 {hour} * * *  # Run {i + 1} at {hour:02d}:00")
         else:
             # Need multiple days
             schedule.append("0 */3 * * *  # Every 3 hours")
@@ -129,16 +133,12 @@ class RateLimitScheduler:
     def estimate_completion_time(
         self,
         pending_partitions: int,
-        current_rate: float  # partitions per hour
+        current_rate: float,  # partitions per hour
     ) -> dict:
         """Estimate time to completion based on current crawling rate."""
 
         if current_rate <= 0:
-            return {
-                "hours": None,
-                "days": None,
-                "estimated_completion": "Unknown"
-            }
+            return {"hours": None, "days": None, "estimated_completion": "Unknown"}
 
         hours_needed = pending_partitions / current_rate
         days_needed = hours_needed / 24
@@ -148,13 +148,11 @@ class RateLimitScheduler:
         return {
             "hours": round(hours_needed, 1),
             "days": round(days_needed, 1),
-            "estimated_completion": completion_date.strftime("%Y-%m-%d %H:%M")
+            "estimated_completion": completion_date.strftime("%Y-%m-%d %H:%M"),
         }
 
     def suggest_workflow_config(
-        self,
-        pending_partitions: int,
-        avg_repos_per_partition: float = 500
+        self, pending_partitions: int, avg_repos_per_partition: float = 500
     ) -> dict:
         """Suggest optimal workflow configuration."""
 
@@ -166,12 +164,16 @@ class RateLimitScheduler:
         if pending_partitions <= partitions_per_hour:
             # Can complete in one run
             matrix_size = min(50, max(1, pending_partitions // 10))
-            repos_per_job = (pending_partitions // matrix_size) * int(avg_repos_per_partition)
+            repos_per_job = (pending_partitions // matrix_size) * int(
+                avg_repos_per_partition
+            )
             frequency = "Once"
         else:
             # Need multiple runs
             matrix_size = 100
-            repos_per_job = (partitions_per_hour // matrix_size) * int(avg_repos_per_partition)
+            repos_per_job = (partitions_per_hour // matrix_size) * int(
+                avg_repos_per_partition
+            )
             runs_needed = pending_partitions // partitions_per_hour
             frequency = f"Every 90 minutes, {runs_needed} times"
 
@@ -181,6 +183,6 @@ class RateLimitScheduler:
             "frequency": frequency,
             "workflow_dispatch_inputs": {
                 "matrix_size": str(matrix_size),
-                "max_repos_per_job": str(repos_per_job)
-            }
+                "max_repos_per_job": str(repos_per_job),
+            },
         }
