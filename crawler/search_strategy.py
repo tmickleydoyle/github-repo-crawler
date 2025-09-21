@@ -78,31 +78,21 @@ class SearchStrategy:
             "dart",
             "r",
             "objective-c",
+            "shell",
+            "html",
+            "css",
+            "scss",
+            "vue",
+            "c",
+            "matlab",
             "perl",
             "haskell",
             "lua",
             "clojure",
-            "f#",
-            "erlang",
-            "elixir",
-            "crystal",
-            "nim",
             "julia",
-            "zig",
-            "v",
-            "assembly",
-            "shell",
             "powershell",
             "makefile",
             "dockerfile",
-            "html",
-            "css",
-            "scss",
-            "less",
-            "vue",
-            "svelte",
-            "coffeescript",
-            "livescript",
         ]
 
         star_ranges = [
@@ -124,13 +114,8 @@ class SearchStrategy:
             "1001..1400",
             "1401..2000",
             "2001..3000",
-            "3001..4500",
-            "4501..7000",
-            "7001..10000",
-            "10001..15000",
-            "15001..25000",
-            "25001..50000",
-            ">50000",
+            "3001..5000",
+            ">5000",
         ]
 
         time_ranges = [
@@ -190,9 +175,9 @@ class SearchStrategy:
         ]
 
         # Calculate total combinations for unique partitioning
-        strategy_0_combinations = len(languages) * len(star_ranges)  # 41 * 25 = 1025
-        strategy_1_combinations = len(time_ranges) * len(star_ranges)  # 10 * 25 = 250
-        strategy_2_combinations = len(topics) * len(star_ranges)  # 20 * 25 = 500
+        strategy_0_combinations = len(languages) * len(star_ranges)  # 32 * 20 = 640
+        strategy_1_combinations = len(time_ranges) * len(star_ranges)  # 10 * 20 = 200
+        strategy_2_combinations = len(topics) * len(star_ranges)  # 20 * 20 = 400
         strategy_3_combinations = len(special_searches)  # 8
 
         total_combinations = (
@@ -200,7 +185,7 @@ class SearchStrategy:
             + strategy_1_combinations
             + strategy_2_combinations
             + strategy_3_combinations
-        )  # 1783 total combinations
+        )  # 1248 total combinations
 
         # Map matrix_index to a unique combination across the entire search space
         combination_index = (matrix_index * total_combinations) // matrix_total
@@ -339,46 +324,25 @@ class SimpleSearchStrategy(SearchStrategy):
             "dart",
             "r",
             "objective-c",
+            "shell",
+            "html",
+            "css",
+            "scss",
+            "vue",
+            "c",
+            "matlab",
             "perl",
             "haskell",
             "lua",
             "clojure",
-            "f#",
-            "erlang",
-            "elixir",
-            "crystal",
-            "nim",
             "julia",
-            "zig",
-            "v",
-            "assembly",
-            "shell",
             "powershell",
             "makefile",
             "dockerfile",
-            "html",
-            "css",
-            "scss",
-            "less",
-            "vue",
-            "svelte",
-            "coffeescript",
-            "livescript",
-            "ocaml",
-            "racket",
-            "scheme",
-            "forth",
-            "prolog",
-            "cobol",
-            "fortran",
-            "pascal",
-            "ada",
-            "vhdl",
-            "verilog",
-            "matlab",
-            "mathematica",
             "tex",
-            "nix",
+            "elixir",
+            "erlang",
+            "f#",
         ]
 
         star_ranges = [
@@ -399,13 +363,8 @@ class SimpleSearchStrategy(SearchStrategy):
             "1001..1400",
             "1401..2000",
             "2001..3000",
-            "3001..4500",
-            "4501..7000",
-            "7001..10000",
-            "10001..15000",
-            "15001..25000",
-            "25001..50000",
-            ">50000",
+            "3001..5000",
+            ">5000",
         ]
 
         time_ranges = [
@@ -567,15 +526,15 @@ class SimpleSearchStrategy(SearchStrategy):
         ]
 
         # Calculate total combinations for unique partitioning
-        strategy_0_combinations = len(languages) * len(star_ranges)  # 48 * 25 = 1200
-        strategy_1_combinations = len(time_ranges) * len(star_ranges)  # 32 * 25 = 800
+        strategy_0_combinations = len(languages) * len(star_ranges)  # 35 * 19 = 665
+        strategy_1_combinations = len(time_ranges) * len(star_ranges)  # 32 * 19 = 608
         strategy_2_combinations = (
             len(sizes) * len(languages) * len(star_ranges)
-        )  # 8 * 48 * 25 = 9600
-        strategy_3_combinations = len(topics) * len(star_ranges)  # 30 * 25 = 750
+        )  # 8 * 35 * 19 = 5320
+        strategy_3_combinations = len(topics) * len(star_ranges)  # 30 * 19 = 570
         strategy_4_combinations = (
             len(licenses) * len(languages) * len(star_ranges)
-        )  # 8 * 48 * 25 = 9600
+        )  # 8 * 35 * 19 = 5320
         strategy_5_combinations = len(special_searches)  # 15
 
         total_combinations = (
@@ -585,7 +544,7 @@ class SimpleSearchStrategy(SearchStrategy):
             + strategy_3_combinations
             + strategy_4_combinations
             + strategy_5_combinations
-        )  # 21965 total combinations
+        )  # 12498 total combinations
 
         # Map matrix_index to a unique combination across the entire search space
         combination_index = (matrix_index * total_combinations) // matrix_total
