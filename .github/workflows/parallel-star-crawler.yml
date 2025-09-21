@@ -10,13 +10,18 @@ on:
       matrix_size:
         description: "Number of parallel crawler jobs (1-200)"
         required: false
-        default: "100"
+        default: "50"
         type: string
       max_repos_per_job:
         description: "Max repositories per job"
         required: false
-        default: "1000"
+        default: "2000"
         type: string
+      report_only:
+        description: "Generate report only (no crawling)"
+        required: false
+        default: "false"
+        type: boolean
 
 permissions:
   contents: read
@@ -30,8 +35,38 @@ env:
   POSTGRES_PASSWORD: postgres
   POSTGRES_HOST: localhost
   POSTGRES_PORT: 5432
+  USE_STATEFUL_STRATEGY: true
 
 jobs:
+  # Generate crawling report
+  report:
+    runs-on: ubuntu-latest
+    if: github.event.inputs.report_only == 'true'
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Generate crawling report
+        run: |
+          export GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
+          export CRAWLER_STATE_GIST_ID="${{ secrets.CRAWLER_STATE_GIST_ID }}"
+
+          echo "📊 Generating crawling progress report..."
+          python -m crawler.main --report-only
+
   validate:
     runs-on: ubuntu-latest
     # Run validation on push/PR, but skip full crawling
@@ -111,7 +146,7 @@ jobs:
   generate-matrix:
     runs-on: ubuntu-latest
     # Only generate matrix for full crawling
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.report_only != 'true'
     permissions:
       contents: read
     outputs:
@@ -141,7 +176,7 @@ jobs:
     needs: generate-matrix
     runs-on: ubuntu-latest
     # Only run full crawling on manual workflow dispatch
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.report_only != 'true'
     permissions:
       contents: read
       actions: write
@@ -242,15 +277,18 @@ jobs:
       - name: Run crawler (Job ${{ matrix.job_index }})
         run: |
           export GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
+          export CRAWLER_STATE_GIST_ID="${{ secrets.CRAWLER_STATE_GIST_ID }}"
           export POSTGRES_HOST="${{ env.POSTGRES_HOST }}"
           export POSTGRES_PORT="${{ env.POSTGRES_PORT }}"
           export POSTGRES_DB="${{ env.POSTGRES_DB }}"
           export POSTGRES_USER="${{ env.POSTGRES_USER }}"
           export POSTGRES_PASSWORD="${{ env.POSTGRES_PASSWORD }}"
-          export MAX_REPOS="${{ github.event.inputs.max_repos_per_job || '1000' }}"
+          export MAX_REPOS="${{ github.event.inputs.max_repos_per_job || '2000' }}"
+          export USE_STATEFUL_STRATEGY="${{ env.USE_STATEFUL_STRATEGY }}"
 
-          echo "🚀 Starting crawler job ${{ matrix.job_index }} of ${{ github.event.inputs.matrix_size || '10' }}"
+          echo "🚀 Starting crawler job ${{ matrix.job_index }} of ${{ github.event.inputs.matrix_size || '50' }}"
           echo "🎯 Target: ${MAX_REPOS} repositories"
+          echo "🔑 Using state management: ${USE_STATEFUL_STRATEGY}"
 
           # Check if GitHub token is set
           if [ -z "$GITHUB_TOKEN" ]; then
@@ -260,6 +298,13 @@ jobs:
           fi
 
           echo "🔑 GitHub token length: ${#GITHUB_TOKEN} characters"
+
+          # Check if state Gist ID is configured
+          if [ -z "$CRAWLER_STATE_GIST_ID" ] && [ "$USE_STATEFUL_STRATEGY" = "true" ]; then
+            echo "⚠️ WARNING: CRAWLER_STATE_GIST_ID not configured!"
+            echo "The crawler will create a new Gist for state storage."
+            echo "Add the Gist ID to your repository secrets to persist state across runs."
+          fi
 
           # Test GitHub API access first
           echo "🔍 Testing GitHub API access..."
@@ -401,7 +446,7 @@ jobs:
     needs: [generate-matrix, crawl]
     runs-on: ubuntu-latest
     # Run aggregation even if some crawl jobs fail, but only when crawling was attempted
-    if: github.event_name == 'workflow_dispatch' && always()
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.report_only != 'true' && always()
     permissions:
       contents: write
       actions: write
@@ -632,16 +677,58 @@ jobs:
             github_repositories_final.csv
             database_exports/
 
-      - name: Display summary
+      - name: Display summary and generate final report
         run: |
           echo "🎉 GitHub Star Crawler completed successfully!"
           echo ""
           echo "📊 Results:"
-          echo "- Matrix jobs: ${{ github.event.inputs.matrix_size || '10' }}"
-          echo "- Target per job: ${{ github.event.inputs.max_repos_per_job || '1000' }}"
+          echo "- Matrix jobs: ${{ github.event.inputs.matrix_size || '50' }}"
+          echo "- Target per job: ${{ github.event.inputs.max_repos_per_job || '2000' }}"
           echo "- CSV export: github_repositories_final.csv"
           echo ""
           if [ -f github_repositories_final.csv ]; then
             repo_count=$(wc -l < github_repositories_final.csv)
             echo "✅ Total repositories collected: $((repo_count - 1))"  # Subtract 1 for header
           fi
+          echo ""
+          echo "📊 CRAWLING REPORT:"
+          export GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
+          export CRAWLER_STATE_GIST_ID="${{ secrets.CRAWLER_STATE_GIST_ID }}"
+          python -m crawler.main --report-only || echo "Report generation not available"
+
+      - name: Generate recommendations
+        run: |
+          export GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
+          export CRAWLER_STATE_GIST_ID="${{ secrets.CRAWLER_STATE_GIST_ID }}"
+
+          echo ""
+          echo "📋 RECOMMENDATIONS FOR NEXT RUN:"
+          python -c "
+          import asyncio
+          from crawler.client import GitHubClient
+          from crawler.rate_limit_scheduler import RateLimitScheduler
+
+          async def recommend():
+              async with GitHubClient() as client:
+                  report = await client.get_crawling_report()
+                  if 'error' not in report:
+                      scheduler = RateLimitScheduler()
+                      pending = report['partitions']['pending']
+
+                      if pending > 0:
+                          config = scheduler.suggest_workflow_config(pending)
+                          print(f'  Matrix Size: {config[\"matrix_size\"]}')
+                          print(f'  Max Repos per Job: {config[\"max_repos_per_job\"]}')
+                          print(f'  Frequency: {config[\"frequency\"]}')
+
+                          # Show workflow dispatch command
+                          print('')
+                          print('  Run next crawl with:')
+                          print('  gh workflow run parallel-star-crawler.yml \\\\')
+                          print(f'    -f matrix_size={config[\"matrix_size\"]} \\\\')
+                          print(f'    -f max_repos_per_job={config[\"max_repos_per_job\"]}')
+                      else:
+                          print('  All partitions processed! Consider adding more search spaces.')
+
+          asyncio.run(recommend())
+          " || echo "Could not generate recommendations"

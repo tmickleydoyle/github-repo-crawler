@@ -23,6 +23,8 @@ from .domain import (
     transform_github_response,
 )
 from .search_strategy import SimpleSearchStrategy
+from .state_manager import CrawlerState, StateManager
+from .stateful_search_strategy import StatefulSearchStrategy
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -61,9 +63,24 @@ class GitHubClient:
             "User-Agent": "GitHub-Crawler/1.0",
         }
         self.search_strategy = SimpleSearchStrategy()
+
+        # Initialize state management if enabled
+        self.use_state = settings.crawler_use_stateful_strategy
+        if self.use_state:
+            self.state_manager = StateManager(
+                gist_id=settings.crawler_state_gist_id,
+                github_token=token
+            )
+            self.stateful_strategy = StatefulSearchStrategy(self.state_manager)
+            self.state: CrawlerState | None = None
+        else:
+            self.state_manager = None
+            self.stateful_strategy = None
+            self.state = None
+
         self._connector: aiohttp.TCPConnector | None = None
         self._session: aiohttp.ClientSession | None = None
-        logger.info(f"✅ GitHub client initialized with token length: {len(token)}")
+        logger.info(f"✅ GitHub client initialized with token length: {len(token)} (stateful: {self.use_state})")
 
     async def __aenter__(self) -> "GitHubClient":
         """Async context manager entry."""
@@ -80,10 +97,24 @@ class GitHubClient:
             timeout=aiohttp.ClientTimeout(total=30),
             trust_env=True,  # Trust environment proxy settings if any
         )
+
+        # Load state if using stateful strategy
+        if self.use_state and self.state_manager:
+            self.state = await self.state_manager.load_state()
+            logger.info(f"Loaded state with {len(self.state.partitions)} partitions")
+
         return self
 
     async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Async context manager exit."""
+        # Save state if using stateful strategy
+        if self.use_state and self.state_manager and self.state:
+            try:
+                gist_id = await self.state_manager.save_state(self.state)
+                logger.info(f"Saved state to Gist: {gist_id}")
+            except Exception as e:
+                logger.error(f"Failed to save state: {e}")
+
         if self._session:
             await self._session.close()
         if self._connector:
@@ -285,20 +316,33 @@ class GitHubClient:
         target_repos: int | None = None,
     ) -> CrawlResult:
         """
-        Main crawling method using clean architecture principles.
+        Main crawling method with optional state management.
 
         This method:
-        - Uses domain models instead of raw dictionaries
-        - Delegates search strategy to dedicated class
+        - Uses state management to prevent duplicate work when enabled
+        - Delegates to appropriate search strategy
         - Implements proper resource management
         - Returns structured results with metadata
         """
-        logger.info(f"🚀 Starting crawl: Matrix job {matrix_index + 1}/{matrix_total}")
+        logger.info(f"🚀 Starting crawl: Matrix job {matrix_index + 1}/{matrix_total} (stateful: {self.use_state})")
         settings = get_settings()
         if target_repos is None:
             target_repos = settings.crawler_max_repos
         logger.info(f"🎯 Target: {target_repos} repositories")
 
+        # Use stateful crawling if enabled
+        if self.use_state and self.stateful_strategy and self.state_manager:
+            return await self._crawl_stateful(matrix_total, matrix_index, target_repos)
+        else:
+            return await self._crawl_standard(matrix_total, matrix_index, target_repos)
+
+    async def _crawl_standard(
+        self,
+        matrix_total: int,
+        matrix_index: int,
+        target_repos: int
+    ) -> CrawlResult:
+        """Standard crawling without state management."""
         repositories: list[Repository] = []
         repository_ids: set[int] = set()
 
@@ -358,6 +402,119 @@ class GitHubClient:
 
         return crawl_result
 
+    async def _crawl_stateful(
+        self,
+        matrix_total: int,
+        matrix_index: int,
+        target_repos: int
+    ) -> CrawlResult:
+        """Stateful crawling with deduplication and progress tracking."""
+        if not self.state:
+            self.state = await self.state_manager.load_state()
+
+        # Initialize partitions if needed
+        await self.stateful_strategy.initialize_partitions(self.state)
+
+        # Get statistics before crawling
+        stats = self.stateful_strategy.get_statistics(self.state)
+        logger.info(f"📊 Current progress: {stats['completion_percentage']}% complete")
+        logger.info(
+            f"📊 Partitions: {stats['pending']} pending, "
+            f"{stats['in_progress']} in-progress, "
+            f"{stats['completed']} completed"
+        )
+        logger.info(f"📊 Total unique repositories: {stats['unique_repositories']:,}")
+
+        # Record workflow run
+        workflow_run_id = f"{matrix_index}_{matrix_total}_{target_repos}"
+        await self.state_manager.record_workflow_run(
+            self.state, workflow_run_id, matrix_total, target_repos
+        )
+
+        # Get queries for this job
+        queries = await self.stateful_strategy.get_queries_for_job(
+            self.state, matrix_index, matrix_total, queries_per_job=10
+        )
+
+        if not queries:
+            logger.warning("⚠️ No queries assigned to this job")
+            return CrawlResult(
+                repositories=[],
+                total_found=0,
+                duration_seconds=0.0,
+                errors=["No queries available"]
+            )
+
+        repositories: list[Repository] = []
+        repository_ids: set[int] = set()
+        checkpoint_interval = 100
+
+        for query_idx, search_query in enumerate(queries):
+            if len(repositories) >= target_repos:
+                break
+
+            logger.info(
+                f"🔍 Query {query_idx + 1}/{len(queries)}: {search_query.query_string}"
+            )
+
+            try:
+                # Crawl with deduplication against global state
+                query_repos = await self._crawl_query_with_state(
+                    search_query, repositories, repository_ids, target_repos
+                )
+
+                # Update state
+                self.stateful_strategy.mark_query_complete(
+                    self.state,
+                    search_query.query_string,
+                    len(query_repos),
+                    exhausted=(len(query_repos) < search_query.expected_results * 0.5)
+                )
+
+                # Add to global unique set
+                for repo in query_repos:
+                    self.state.total_unique_repositories.add(repo.id)
+
+                # Checkpoint periodically
+                if len(repositories) % checkpoint_interval == 0 and len(repositories) > 0:
+                    logger.info(f"💾 Checkpointing at {len(repositories)} repositories")
+                    await self.state_manager.save_state(self.state)
+
+            except Exception as e:
+                logger.error(f"❌ Error processing query: {e}")
+                continue
+
+        # Final state update
+        self.state.total_repositories += len(repositories)
+
+        # Update workflow run info
+        if self.state.workflow_runs:
+            self.state.workflow_runs[-1]["repositories_collected"] = len(repositories)
+
+        # Save final state
+        await self.state_manager.save_state(self.state)
+
+        # Get final statistics
+        final_stats = self.stateful_strategy.get_statistics(self.state)
+        logger.info(f"🎉 Crawl completed for matrix job {matrix_index}")
+        logger.info(f"📊 Collected: {len(repositories)} repositories in this job")
+        logger.info(f"📊 Global unique repositories: {final_stats['unique_repositories']:,}")
+        logger.info(f"📊 Overall progress: {final_stats['completion_percentage']}% complete")
+        logger.info(
+            f"📊 Estimated total repositories: {final_stats['estimated_total_repositories']:,}"
+        )
+
+        # Suggest next run configuration
+        suggested_matrix = self.stateful_strategy.suggest_matrix_size(self.state)
+        logger.info(f"💡 Suggested matrix size for next run: {suggested_matrix}")
+
+        return CrawlResult(
+            repositories=repositories[:target_repos],
+            total_found=len(repositories),
+            duration_seconds=0.0,
+            errors=[]
+        )
+
     async def _crawl_query(
         self,
         search_query: SearchQuery,
@@ -407,3 +564,114 @@ class GitHubClient:
             except Exception as e:
                 logger.error(f"❌ Error in query pagination: {e}")
                 break
+
+    async def _crawl_query_with_state(
+        self,
+        search_query: SearchQuery,
+        repositories: list[Repository],
+        repository_ids: set[int],
+        target_repos: int
+    ) -> list[Repository]:
+        """Crawl a query with state-based deduplication."""
+        query_repos = []
+        after_cursor = None
+        pages_processed = 0
+        max_pages = 10
+
+        while len(repositories) < target_repos and pages_processed < max_pages:
+            try:
+                result = await self.search_repositories(search_query, after_cursor)
+
+                batch_added = 0
+                for repo in result["repositories"]:
+                    # Check against both local and global state
+                    if (repo.id not in repository_ids and
+                        repo.id not in self.state.total_unique_repositories):
+                        repositories.append(repo)
+                        repository_ids.add(repo.id)
+                        query_repos.append(repo)
+                        batch_added += 1
+
+                        if len(repositories) >= target_repos:
+                            break
+
+                logger.debug(
+                    f"📄 Page {pages_processed + 1}: Added {batch_added} new repositories"
+                )
+
+                page_info = result["pageInfo"]
+                if not page_info["hasNextPage"]:
+                    break
+
+                after_cursor = page_info["endCursor"]
+                pages_processed += 1
+
+                # Rate limit handling
+                if result["rateLimit"]["remaining"] < 100:
+                    logger.info("⏱️ Rate limit low, sleeping...")
+                    await asyncio.sleep(1)
+
+            except RateLimitError:
+                logger.warning("⏱️ Rate limit hit, sleeping 60 seconds...")
+                await asyncio.sleep(60)
+                continue
+            except Exception as e:
+                logger.error(f"❌ Error in query pagination: {e}")
+                break
+
+        return query_repos
+
+    async def get_crawling_report(self) -> dict:
+        """Generate a comprehensive crawling report."""
+        if not self.use_state or not self.state_manager:
+            return {
+                "error": "State management not enabled",
+                "recommendation": "Set USE_STATEFUL_STRATEGY=true and configure CRAWLER_STATE_GIST_ID"
+            }
+
+        if not self.state:
+            self.state = await self.state_manager.load_state()
+
+        stats = self.stateful_strategy.get_statistics(self.state)
+
+        # Calculate additional metrics
+        if stats['completed'] + stats['exhausted'] > 0:
+            avg_repos_per_partition = (
+                stats['total_repositories'] / (stats['completed'] + stats['exhausted'])
+            )
+        else:
+            avg_repos_per_partition = 0
+
+        # Estimate time to completion
+        if stats['completion_percentage'] > 0:
+            runs_completed = len(self.state.workflow_runs)
+            runs_remaining = int(
+                runs_completed * (100 - stats['completion_percentage']) / stats['completion_percentage']
+            )
+        else:
+            runs_remaining = "Unknown"
+
+        return {
+            "summary": {
+                "total_unique_repositories": stats['unique_repositories'],
+                "total_repositories_seen": stats['total_repositories'],
+                "completion_percentage": stats['completion_percentage'],
+                "estimated_total": stats['estimated_total_repositories']
+            },
+            "partitions": {
+                "total": stats['total_partitions'],
+                "pending": stats['pending'],
+                "in_progress": stats['in_progress'],
+                "completed": stats['completed'],
+                "exhausted": stats['exhausted']
+            },
+            "performance": {
+                "workflow_runs": stats['workflow_runs'],
+                "avg_repos_per_partition": round(avg_repos_per_partition, 1),
+                "estimated_runs_remaining": runs_remaining
+            },
+            "recommendations": {
+                "next_matrix_size": self.stateful_strategy.suggest_matrix_size(self.state),
+                "gist_id": self.state_manager.gist_id
+            }
+        }
