@@ -413,6 +413,9 @@ class GitHubClient:
                 known_repo_ids = set()
                 if csv_tracker:
                     known_repo_ids = csv_tracker.get_known_repository_ids()
+                    logger.debug("CSV tracking loaded",
+                               known_repo_count=len(known_repo_ids),
+                               csv_file=csv_tracker.csv_file_path)
 
                 # Only add repos that are NOT already known and not in this run
                 batch_added = 0
@@ -428,23 +431,17 @@ class GitHubClient:
                         if len(repositories) >= target_repos:
                             break
 
+                logger.debug("Repository filtering results",
+                           page_repos=len(result["repositories"]),
+                           known_repos=len(known_repo_ids),
+                           already_in_run=len([r for r in result["repositories"] if r.id in repository_ids]),
+                           new_repos_added=batch_added)
+
                 # Legacy support for db_repository (PostgreSQL persistence)
                 if db_repository and new_repos_this_batch:
                     await db_repository.mark_repositories_discovered(
                         new_repos_this_batch, matrix_index, crawl_run_id
                     )
-
-                # If no CSV tracking is available, fall back to basic in-memory deduplication
-                if not csv_tracker:
-                    batch_added = 0
-                    for repo in result["repositories"]:
-                        if repo.id not in repository_ids:
-                            repositories.append(repo)
-                            repository_ids.add(repo.id)
-                            batch_added += 1
-
-                            if len(repositories) >= target_repos:
-                                break
 
                 total_for_query += len(result["repositories"])
 

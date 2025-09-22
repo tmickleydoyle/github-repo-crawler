@@ -12,7 +12,7 @@ logger = structlog.get_logger(__name__)
 class CSVRepositoryTracker:
     """Manages tracking of scraped repositories using CSV files for deduplication."""
 
-    def __init__(self, csv_file_path: str = "database_exports/github_repositories_final.csv"):
+    def __init__(self, csv_file_path: str = "github_repositories_final.csv"):
         self.csv_file_path = csv_file_path
         self._known_repo_ids: Set[int] = set()
         self._loaded = False
