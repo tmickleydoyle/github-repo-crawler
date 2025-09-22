@@ -30,6 +30,7 @@ env:
   POSTGRES_PASSWORD: postgres
   POSTGRES_HOST: localhost
   POSTGRES_PORT: 5432
+  DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
 jobs:
   validate:

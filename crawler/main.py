@@ -6,6 +6,7 @@ import asyncio
 from .client import GitHubClient
 from .config import get_settings
 from .db_repository import DatabaseRepository
+from .tracking_db import RepositoryTracker
 from .logger import get_logger, setup_logging
 
 
@@ -74,37 +75,61 @@ async def run() -> None:
         async with DatabaseRepository() as db_repo:
             await db_repo.initialize_schema()
 
-            # Show discovery stats from previous runs
-            discovery_stats = await db_repo.get_discovery_stats()
-            if discovery_stats["total_discovered"] > 0:
-                logger.info(
-                    "📊 Previous discovery stats",
-                    total_discovered=discovery_stats["total_discovered"],
-                    discovered_last_24h=discovery_stats["discovered_last_24h"],
-                    rediscovered_count=discovery_stats["rediscovered_repos"]
-                )
+            # Initialize Supabase repository tracker for global deduplication
+            async with RepositoryTracker() as tracker:
+                # Show current tracking stats
+                tracking_stats = await tracker.get_tracking_stats()
+                if tracking_stats.get("tracking_enabled"):
+                    logger.info(
+                        "📊 Supabase tracking stats",
+                        total_discovered=tracking_stats["total_discovered"],
+                        discovered_last_24h=tracking_stats["discovered_last_24h"],
+                        total_tracked=tracking_stats["total_tracked"],
+                        avg_stars=tracking_stats.get("avg_stars", 0)
+                    )
+                else:
+                    logger.warning("Supabase tracking not available - running without global deduplication")
 
-            async with GitHubClient() as client:
-                if not await client.test_connection():
-                    logger.error("GitHub API connection test failed")
-                    return
+                # Show PostgreSQL discovery stats
+                discovery_stats = await db_repo.get_discovery_stats()
+                if discovery_stats["total_discovered"] > 0:
+                    logger.info(
+                        "📊 PostgreSQL persistence stats",
+                        total_discovered=discovery_stats["total_discovered"],
+                        discovered_last_24h=discovery_stats["discovered_last_24h"],
+                        rediscovered_count=discovery_stats["rediscovered_repos"]
+                    )
 
-                crawl_result = await client.crawl(
-                    matrix_total=args.matrix_total,
-                    matrix_index=args.matrix_index,
-                    target_repos=args.repos,
-                    db_repository=db_repo,  # Pass db for persistence
-                )
+                async with GitHubClient() as client:
+                    if not await client.test_connection():
+                        logger.error("GitHub API connection test failed")
+                        return
 
-                await db_repo.store_repositories(crawl_result, args.matrix_index)
+                    crawl_result = await client.crawl(
+                        matrix_total=args.matrix_total,
+                        matrix_index=args.matrix_index,
+                        target_repos=args.repos,
+                        db_repository=db_repo,  # PostgreSQL for local storage
+                        repository_tracker=tracker,  # Supabase for global tracking
+                    )
 
-                # Show updated discovery stats
-                final_stats = await db_repo.get_discovery_stats()
-                logger.info(
-                    "📈 Final discovery stats",
-                    total_discovered=final_stats["total_discovered"],
-                    new_this_run=final_stats["total_discovered"] - discovery_stats["total_discovered"]
-                )
+                    await db_repo.store_repositories(crawl_result, args.matrix_index)
+
+                    # Show updated stats
+                    final_tracking_stats = await tracker.get_tracking_stats()
+                    if final_tracking_stats.get("tracking_enabled"):
+                        logger.info(
+                            "📈 Final tracking stats",
+                            total_discovered=final_tracking_stats["total_discovered"],
+                            total_tracked=final_tracking_stats["total_tracked"]
+                        )
+
+                    final_stats = await db_repo.get_discovery_stats()
+                    logger.info(
+                        "📈 Final PostgreSQL stats",
+                        total_discovered=final_stats["total_discovered"],
+                        new_this_run=final_stats["total_discovered"] - discovery_stats["total_discovered"]
+                    )
 
             logger.info(
                 "Crawl completed successfully",
