@@ -73,6 +73,12 @@ class TestCrawlerIntegration:
                     mock_db.__aexit__ = AsyncMock(return_value=None)
                     mock_db.initialize_schema = AsyncMock()
                     mock_db.store_repositories = AsyncMock()
+                    mock_db.get_discovery_stats = AsyncMock(return_value={
+                        "total_discovered": 0,
+                        "discovered_last_24h": 0,
+                        "rediscovered_repos": 0
+                    })
+                    mock_db.mark_repositories_discovered = AsyncMock(return_value=[])
 
                     mock_args.return_value.repos = 1000
                     mock_args.return_value.matrix_total = 1
@@ -81,9 +87,15 @@ class TestCrawlerIntegration:
                     await run()
 
                     mock_client.test_connection.assert_called_once()
-                    mock_client.crawl.assert_called_once_with(
-                        matrix_total=1, matrix_index=0, target_repos=1000
-                    )
+                    # The crawl method now includes db_repository and csv_deduplicator parameters
+                    call_args = mock_client.crawl.call_args
+                    assert call_args.kwargs['matrix_total'] == 1
+                    assert call_args.kwargs['matrix_index'] == 0
+                    assert call_args.kwargs['target_repos'] == 1000
+                    # Should have db_repository since database connection should work with mocking
+                    assert call_args.kwargs['db_repository'] == mock_db
+                    # Should have csv_deduplicator for additional filtering
+                    assert call_args.kwargs['csv_deduplicator'] is not None
                     mock_db.initialize_schema.assert_called_once()
                     mock_db.store_repositories.assert_called_once_with(
                         mock_crawl_result, 0
