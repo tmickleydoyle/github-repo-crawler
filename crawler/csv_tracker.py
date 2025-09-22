@@ -3,7 +3,8 @@
 import csv
 import os
 from datetime import datetime
-from typing import Set, List, Dict, Any, Optional
+from typing import Any
+
 import structlog
 
 logger = structlog.get_logger(__name__)
@@ -14,10 +15,10 @@ class CSVRepositoryTracker:
 
     def __init__(self, csv_file_path: str = "github_repositories_final.csv"):
         self.csv_file_path = csv_file_path
-        self._known_repo_ids: Set[int] = set()
+        self._known_repo_ids: set[int] = set()
         self._loaded = False
 
-    def _load_existing_repositories(self) -> Set[int]:
+    def _load_existing_repositories(self) -> set[int]:
         """Load repository IDs from existing CSV file."""
         if self._loaded:
             return self._known_repo_ids
@@ -26,13 +27,13 @@ class CSVRepositoryTracker:
 
         if os.path.exists(self.csv_file_path):
             try:
-                with open(self.csv_file_path, 'r', newline='', encoding='utf-8') as f:
+                with open(self.csv_file_path, newline="", encoding="utf-8") as f:
                     reader = csv.DictReader(f)
                     for row in reader:
                         # Try to get ID from different possible column names
                         repo_id = None
-                        for id_col in ['id', 'repo_id', 'databaseId']:
-                            if id_col in row and row[id_col]:
+                        for id_col in ["id", "repo_id", "databaseId"]:
+                            if row.get(id_col):
                                 try:
                                     repo_id = int(row[id_col])
                                     break
@@ -42,24 +43,30 @@ class CSVRepositoryTracker:
                         if repo_id:
                             repo_ids.add(repo_id)
 
-                logger.info("Loaded existing repositories for deduplication",
-                          csv_file=self.csv_file_path,
-                          count=len(repo_ids))
+                logger.info(
+                    "Loaded existing repositories for deduplication",
+                    csv_file=self.csv_file_path,
+                    count=len(repo_ids),
+                )
 
             except Exception as e:
-                logger.warning("Failed to load existing CSV file",
-                             csv_file=self.csv_file_path,
-                             error=str(e))
+                logger.warning(
+                    "Failed to load existing CSV file",
+                    csv_file=self.csv_file_path,
+                    error=str(e),
+                )
 
         else:
-            logger.info("No existing CSV file found - starting fresh",
-                       csv_file=self.csv_file_path)
+            logger.info(
+                "No existing CSV file found - starting fresh",
+                csv_file=self.csv_file_path,
+            )
 
         self._known_repo_ids = repo_ids
         self._loaded = True
         return repo_ids
 
-    def get_known_repository_ids(self) -> Set[int]:
+    def get_known_repository_ids(self) -> set[int]:
         """Get all known repository IDs from previous runs."""
         return self._load_existing_repositories()
 
@@ -68,27 +75,30 @@ class CSVRepositoryTracker:
         known_ids = self.get_known_repository_ids()
         return repo_id in known_ids
 
-    def filter_new_repositories(self, repositories: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def filter_new_repositories(
+        self, repositories: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         """Filter out repositories that are already known."""
         known_ids = self.get_known_repository_ids()
         new_repos = []
 
         for repo in repositories:
-            repo_id = repo.get('id')
+            repo_id = repo.get("id")
             if repo_id and repo_id not in known_ids:
                 new_repos.append(repo)
 
-        logger.info("Filtered repositories using CSV tracking",
-                   total_input=len(repositories),
-                   already_known=len(repositories) - len(new_repos),
-                   new_repositories=len(new_repos))
+        logger.info(
+            "Filtered repositories using CSV tracking",
+            total_input=len(repositories),
+            already_known=len(repositories) - len(new_repos),
+            new_repositories=len(new_repos),
+        )
 
         return new_repos
 
-    def append_repositories_to_csv(self,
-                                  repositories: List[Dict[str, Any]],
-                                  run_id: str,
-                                  matrix_index: int) -> bool:
+    def append_repositories_to_csv(
+        self, repositories: list[dict[str, Any]], run_id: str, matrix_index: int
+    ) -> bool:
         """Append new repositories to the CSV file with run tracking."""
         if not repositories:
             logger.info("No repositories to append to CSV")
@@ -102,59 +112,79 @@ class CSVRepositoryTracker:
             if repositories:
                 fieldnames = list(repositories[0].keys())
                 # Add tracking fields if not present
-                if 'run_id' not in fieldnames:
-                    fieldnames.append('run_id')
-                if 'matrix_index' not in fieldnames:
-                    fieldnames.append('matrix_index')
-                if 'discovered_at' not in fieldnames:
-                    fieldnames.append('discovered_at')
+                if "run_id" not in fieldnames:
+                    fieldnames.append("run_id")
+                if "matrix_index" not in fieldnames:
+                    fieldnames.append("matrix_index")
+                if "discovered_at" not in fieldnames:
+                    fieldnames.append("discovered_at")
             else:
-                fieldnames = ['id', 'name', 'name_with_owner', 'url', 'created_at', 'stars', 'forks',
-                             'language', 'owner', 'license', 'pushed_at', 'updated_at',
-                             'run_id', 'matrix_index', 'discovered_at']
+                fieldnames = [
+                    "id",
+                    "name",
+                    "name_with_owner",
+                    "url",
+                    "created_at",
+                    "stars",
+                    "forks",
+                    "language",
+                    "owner",
+                    "license",
+                    "pushed_at",
+                    "updated_at",
+                    "run_id",
+                    "matrix_index",
+                    "discovered_at",
+                ]
 
             # Open file in append mode
-            with open(self.csv_file_path, 'a', newline='', encoding='utf-8') as f:
+            with open(self.csv_file_path, "a", newline="", encoding="utf-8") as f:
                 writer = csv.DictWriter(f, fieldnames=fieldnames)
 
                 # Write header only if file is new
                 if not file_exists:
                     writer.writeheader()
-                    logger.info("Created new CSV file with headers", csv_file=self.csv_file_path)
+                    logger.info(
+                        "Created new CSV file with headers", csv_file=self.csv_file_path
+                    )
 
                 # Add tracking information and write repositories
-                current_time = datetime.utcnow().isoformat() + 'Z'
+                current_time = datetime.utcnow().isoformat() + "Z"
 
                 for repo in repositories:
                     # Add tracking fields
                     repo_with_tracking = repo.copy()
-                    repo_with_tracking['run_id'] = run_id
-                    repo_with_tracking['matrix_index'] = matrix_index
-                    repo_with_tracking['discovered_at'] = current_time
+                    repo_with_tracking["run_id"] = run_id
+                    repo_with_tracking["matrix_index"] = matrix_index
+                    repo_with_tracking["discovered_at"] = current_time
 
                     writer.writerow(repo_with_tracking)
 
                     # Update our in-memory cache
-                    if repo.get('id'):
-                        self._known_repo_ids.add(repo['id'])
+                    if repo.get("id"):
+                        self._known_repo_ids.add(repo["id"])
 
-            logger.info("Successfully appended repositories to CSV",
-                       csv_file=self.csv_file_path,
-                       count=len(repositories),
-                       run_id=run_id,
-                       matrix_index=matrix_index)
+            logger.info(
+                "Successfully appended repositories to CSV",
+                csv_file=self.csv_file_path,
+                count=len(repositories),
+                run_id=run_id,
+                matrix_index=matrix_index,
+            )
 
             return True
 
         except Exception as e:
-            logger.error("Failed to append repositories to CSV",
-                        csv_file=self.csv_file_path,
-                        error=str(e))
+            logger.error(
+                "Failed to append repositories to CSV",
+                csv_file=self.csv_file_path,
+                error=str(e),
+            )
             return False
 
-    def get_csv_stats(self) -> Dict[str, Any]:
+    def get_csv_stats(self) -> dict[str, Any]:
         """Get statistics about the CSV tracking file."""
-        stats = {
+        stats: dict[str, Any] = {
             "csv_exists": False,
             "total_repositories": 0,
             "unique_run_ids": 0,
@@ -170,13 +200,13 @@ class CSVRepositoryTracker:
             run_ids = set()
             repo_count = 0
 
-            with open(self.csv_file_path, 'r', newline='', encoding='utf-8') as f:
+            with open(self.csv_file_path, newline="", encoding="utf-8") as f:
                 reader = csv.DictReader(f)
 
                 for row in reader:
                     repo_count += 1
-                    if 'run_id' in row and row['run_id']:
-                        run_ids.add(row['run_id'])
+                    if row.get("run_id"):
+                        run_ids.add(row["run_id"])
 
             stats["total_repositories"] = repo_count
             stats["unique_run_ids"] = len(run_ids)

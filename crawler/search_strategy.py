@@ -7,6 +7,7 @@ diverse GitHub repositories while respecting API limits.
 
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 from .domain import SearchQuery
 
@@ -15,7 +16,7 @@ from .domain import SearchQuery
 class SearchStrategy:
     """Strategy for generating GitHub search queries."""
 
-    def calculate_search_space(self) -> dict:
+    def calculate_search_space(self) -> dict[str, Any]:
         """Calculate total search space coverage."""
         # Count all possible combinations (5M repos scale)
         languages = 120  # Expanded to 100+ languages
@@ -29,12 +30,12 @@ class SearchStrategy:
 
         combinations = {
             "language_stars": languages * star_ranges,  # 6,720
-            "time_stars": time_ranges * star_ranges,     # 1,848
-            "topic_stars": topics * star_ranges,         # 1,120
-            "size_stars": size_ranges * 20,              # 160
-            "fork_lang_stars": fork_states * 30 * 15,   # 900 (increased)
-            "archived_stars": archived_states * 30,      # 60
-            "license_stars": licenses * 20,              # 100
+            "time_stars": time_ranges * star_ranges,  # 1,848
+            "topic_stars": topics * star_ranges,  # 1,120
+            "size_stars": size_ranges * 20,  # 160
+            "fork_lang_stars": fork_states * 30 * 15,  # 900 (increased)
+            "archived_stars": archived_states * 30,  # 60
+            "license_stars": licenses * 20,  # 100
         }
 
         total = sum(combinations.values())
@@ -103,50 +104,158 @@ class SearchStrategy:
         # 100+ GitHub languages for comprehensive coverage (5M repos scale)
         languages = [
             # Top 20 most popular
-            "javascript", "python", "java", "typescript", "go",
-            "c++", "ruby", "php", "c#", "c",
-            "shell", "rust", "swift", "kotlin", "dart",
-            "objective-c", "scala", "r", "perl", "haskell",
+            "javascript",
+            "python",
+            "java",
+            "typescript",
+            "go",
+            "c++",
+            "ruby",
+            "php",
+            "c#",
+            "c",
+            "shell",
+            "rust",
+            "swift",
+            "kotlin",
+            "dart",
+            "objective-c",
+            "scala",
+            "r",
+            "perl",
+            "haskell",
             # Next 30 common languages
-            "lua", "julia", "clojure", "elixir", "f#",
-            "erlang", "ocaml", "nim", "crystal", "zig",
-            "powershell", "coffeescript", "groovy", "matlab", "fortran",
-            "pascal", "d", "racket", "scheme", "common lisp",
-            "elm", "purescript", "reason", "hack", "vala",
-            "vhdl", "verilog", "ada", "cobol", "prolog",
+            "lua",
+            "julia",
+            "clojure",
+            "elixir",
+            "f#",
+            "erlang",
+            "ocaml",
+            "nim",
+            "crystal",
+            "zig",
+            "powershell",
+            "coffeescript",
+            "groovy",
+            "matlab",
+            "fortran",
+            "pascal",
+            "d",
+            "racket",
+            "scheme",
+            "common lisp",
+            "elm",
+            "purescript",
+            "reason",
+            "hack",
+            "vala",
+            "vhdl",
+            "verilog",
+            "ada",
+            "cobol",
+            "prolog",
             # Web and markup
-            "html", "css", "scss", "less", "sass",
-            "vue", "svelte", "markdown", "tex", "restructuredtext",
+            "html",
+            "css",
+            "scss",
+            "less",
+            "sass",
+            "vue",
+            "svelte",
+            "markdown",
+            "tex",
+            "restructuredtext",
             # Data and config
-            "yaml", "json", "xml", "toml", "ini",
-            "dockerfile", "makefile", "cmake", "gradle", "maven",
+            "yaml",
+            "json",
+            "xml",
+            "toml",
+            "ini",
+            "dockerfile",
+            "makefile",
+            "cmake",
+            "gradle",
+            "maven",
             # Scripting and shells
-            "bash", "zsh", "fish", "awk", "sed",
-            "vim script", "emacs lisp", "tcl", "smalltalk", "forth",
+            "bash",
+            "zsh",
+            "fish",
+            "awk",
+            "sed",
+            "vim script",
+            "emacs lisp",
+            "tcl",
+            "smalltalk",
+            "forth",
             # Scientific and specialized
-            "jupyter notebook", "sas", "stata", "spss", "igor pro",
-            "labview", "wolfram", "maple", "gnuplot", "idl",
+            "jupyter notebook",
+            "sas",
+            "stata",
+            "spss",
+            "igor pro",
+            "labview",
+            "wolfram",
+            "maple",
+            "gnuplot",
+            "idl",
             # Mobile and game
-            "gdscript", "qml", "unrealscript", "shaderlab", "hlsl",
-            "glsl", "metal", "wgsl", "actionscript", "haxe",
+            "gdscript",
+            "qml",
+            "unrealscript",
+            "shaderlab",
+            "hlsl",
+            "glsl",
+            "metal",
+            "wgsl",
+            "actionscript",
+            "haxe",
             # Newer languages
-            "v", "raku", "moonscript", "red", "pony",
-            "chapel", "ballerina", "grain", "motoko", "move",
+            "v",
+            "raku",
+            "moonscript",
+            "red",
+            "pony",
+            "chapel",
+            "ballerina",
+            "grain",
+            "motoko",
+            "move",
             # Functional
-            "idris", "agda", "coq", "lean", "ats",
-            "mercury", "standard ml", "fstar", "dhall", "nix",
+            "idris",
+            "agda",
+            "coq",
+            "lean",
+            "ats",
+            "mercury",
+            "standard ml",
+            "fstar",
+            "dhall",
+            "nix",
             # Database
-            "sql", "plsql", "plpgsql", "tsql", "mongodb",
+            "sql",
+            "plsql",
+            "plpgsql",
+            "tsql",
+            "mongodb",
             # Legacy but still present
-            "visual basic", "delphi", "foxpro", "clipper", "rexx",
-            "apl", "j", "k", "q", "mumps",
+            "visual basic",
+            "delphi",
+            "foxpro",
+            "clipper",
+            "rexx",
+            "apl",
+            "j",
+            "k",
+            "q",
+            "mumps",
         ]
 
         # More granular star ranges for better coverage (5M repos)
         star_ranges = [
-            "0..0",      # Exactly 0 stars (many repos)
-            "1..1",      # Exactly 1 star
-            "2..2",      # Exactly 2 stars
+            "0..0",  # Exactly 0 stars (many repos)
+            "1..1",  # Exactly 1 star
+            "2..2",  # Exactly 2 stars
             "3..3",
             "4..4",
             "5..5",
@@ -282,61 +391,93 @@ class SearchStrategy:
         # Priority 1: Language + Stars (most granular)
         for lang in languages:
             for stars in star_ranges:
-                all_combos.append({
-                    "type": "lang_stars",
-                    "query": f"is:public language:{lang} stars:{stars} fork:false archived:false sort:updated",
-                    "desc": f"Lang+Stars: {lang}, {stars} stars"
-                })
+                all_combos.append(
+                    {
+                        "type": "lang_stars",
+                        "query": (
+                            f"is:public language:{lang} stars:{stars} "
+                            f"fork:false archived:false sort:updated"
+                        ),
+                        "desc": f"Lang+Stars: {lang}, {stars} stars",
+                    }
+                )
 
         # Priority 2: Time + Stars
         for time in time_ranges:
             for stars in star_ranges:
-                all_combos.append({
-                    "type": "time_stars",
-                    "query": f"is:public created:{time} stars:{stars} fork:false sort:updated",
-                    "desc": f"Time+Stars: {time}, {stars} stars"
-                })
+                all_combos.append(
+                    {
+                        "type": "time_stars",
+                        "query": (
+                            f"is:public created:{time} stars:{stars} "
+                            f"fork:false sort:updated"
+                        ),
+                        "desc": f"Time+Stars: {time}, {stars} stars",
+                    }
+                )
 
         # Priority 3: Topic + Stars
         for topic in topics:
             for stars in star_ranges:
-                all_combos.append({
-                    "type": "topic_stars",
-                    "query": f"is:public topic:{topic} stars:{stars} fork:false sort:updated",
-                    "desc": f"Topic+Stars: {topic}, {stars} stars"
-                })
+                all_combos.append(
+                    {
+                        "type": "topic_stars",
+                        "query": (
+                            f"is:public topic:{topic} stars:{stars} "
+                            f"fork:false sort:updated"
+                        ),
+                        "desc": f"Topic+Stars: {topic}, {stars} stars",
+                    }
+                )
 
         # Priority 4: Size + Stars combinations for extra coverage
         size_ranges = [
-            "<10", "10..50", "51..100", "101..500",
-            "501..1000", "1001..5000", "5001..10000", ">10000"
+            "<10",
+            "10..50",
+            "51..100",
+            "101..500",
+            "501..1000",
+            "1001..5000",
+            "5001..10000",
+            ">10000",
         ]
         for size in size_ranges:
             for stars in star_ranges[:20]:  # Focus on lower star ranges
-                all_combos.append({
-                    "type": "size_stars",
-                    "query": f"is:public size:{size} stars:{stars} sort:updated",
-                    "desc": f"Size+Stars: {size}KB, {stars} stars"
-                })
+                all_combos.append(
+                    {
+                        "type": "size_stars",
+                        "query": f"is:public size:{size} stars:{stars} sort:updated",
+                        "desc": f"Size+Stars: {size}KB, {stars} stars",
+                    }
+                )
 
         # Priority 5: Fork status + language + stars (catch forks too)
         for is_fork in ["true", "false"]:
             for lang in languages[:30]:  # Top 30 languages
                 for stars in star_ranges[:15]:  # Lower star ranges
-                    all_combos.append({
-                        "type": "fork_lang_stars",
-                        "query": f"is:public fork:{is_fork} language:{lang} stars:{stars} sort:updated",
-                        "desc": f"Fork:{is_fork}, Lang:{lang}, Stars:{stars}"
-                    })
+                    all_combos.append(
+                        {
+                            "type": "fork_lang_stars",
+                            "query": (
+                                f"is:public fork:{is_fork} language:{lang} "
+                                f"stars:{stars} sort:updated"
+                            ),
+                            "desc": f"Fork:{is_fork}, Lang:{lang}, Stars:{stars}",
+                        }
+                    )
 
         # Priority 6: Archived status + stars (include archived repos)
         for archived in ["true", "false"]:
             for stars in star_ranges[:30]:
-                all_combos.append({
-                    "type": "archived_stars",
-                    "query": f"is:public archived:{archived} stars:{stars} sort:updated",
-                    "desc": f"Archived:{archived}, Stars:{stars}"
-                })
+                all_combos.append(
+                    {
+                        "type": "archived_stars",
+                        "query": (
+                            f"is:public archived:{archived} stars:{stars} sort:updated"
+                        ),
+                        "desc": f"Archived:{archived}, Stars:{stars}",
+                    }
+                )
 
         # Priority 7: License combinations
         licenses = ["mit", "apache-2.0", "gpl-3.0", "bsd-3-clause", "none"]
@@ -345,11 +486,13 @@ class SearchStrategy:
                 query = f"is:public stars:{stars} sort:updated"
                 if license != "none":
                     query = f"is:public license:{license} stars:{stars} sort:updated"
-                all_combos.append({
-                    "type": "license_stars",
-                    "query": query,
-                    "desc": f"License:{license}, Stars:{stars}"
-                })
+                all_combos.append(
+                    {
+                        "type": "license_stars",
+                        "query": query,
+                        "desc": f"License:{license}, Stars:{stars}",
+                    }
+                )
 
         # Calculate this job's unique slice
         total_combinations = len(all_combos)
@@ -621,43 +764,65 @@ class SimpleSearchStrategy(SearchStrategy):
         # Priority 1: Fine-grained language + stars
         for lang in languages[:30]:  # Focus on popular languages
             for stars in star_ranges[:20]:  # Focus on lower star ranges
-                all_combos.append({
-                    "query": f"is:public language:{lang} stars:{stars} fork:false archived:false sort:updated",
-                    "desc": f"Lang: {lang}, Stars: {stars}"
-                })
+                all_combos.append(
+                    {
+                        "query": (
+                            f"is:public language:{lang} stars:{stars} "
+                            f"fork:false archived:false sort:updated"
+                        ),
+                        "desc": f"Lang: {lang}, Stars: {stars}",
+                    }
+                )
 
         # Priority 2: Time + stars for recent repos
         for time in time_ranges[:15]:  # Recent time periods
             for stars in star_ranges[:15]:
-                all_combos.append({
-                    "query": f"is:public created:{time} stars:{stars} fork:false sort:updated",
-                    "desc": f"Created: {time}, Stars: {stars}"
-                })
+                all_combos.append(
+                    {
+                        "query": (
+                            f"is:public created:{time} stars:{stars} "
+                            f"fork:false sort:updated"
+                        ),
+                        "desc": f"Created: {time}, Stars: {stars}",
+                    }
+                )
 
         # Priority 3: Size + stars
         for size in sizes:
             for stars in star_ranges[:10]:
-                all_combos.append({
-                    "query": f"is:public size:{size} stars:{stars} sort:updated",
-                    "desc": f"Size: {size}KB, Stars: {stars}"
-                })
+                all_combos.append(
+                    {
+                        "query": f"is:public size:{size} stars:{stars} sort:updated",
+                        "desc": f"Size: {size}KB, Stars: {stars}",
+                    }
+                )
 
         # Priority 4: Topic + stars
         for topic in topics:
             for stars in star_ranges[:10]:
-                all_combos.append({
-                    "query": f"is:public topic:{topic} stars:{stars} fork:false sort:updated",
-                    "desc": f"Topic: {topic}, Stars: {stars}"
-                })
+                all_combos.append(
+                    {
+                        "query": (
+                            f"is:public topic:{topic} stars:{stars} "
+                            f"fork:false sort:updated"
+                        ),
+                        "desc": f"Topic: {topic}, Stars: {stars}",
+                    }
+                )
 
         # Priority 5: License + language + stars (very specific)
         for license in licenses[:5]:  # Common licenses
             for lang in ["javascript", "python", "java", "typescript", "go"]:
                 for stars in star_ranges[:5]:
-                    all_combos.append({
-                        "query": f"is:public license:{license} language:{lang} stars:{stars} sort:updated",
-                        "desc": f"License: {license}, Lang: {lang}, Stars: {stars}"
-                    })
+                    all_combos.append(
+                        {
+                            "query": (
+                                f"is:public license:{license} language:{lang} "
+                                f"stars:{stars} sort:updated"
+                            ),
+                            "desc": f"License: {license}, Lang: {lang}, Stars: {stars}",
+                        }
+                    )
 
         # Calculate unique slice for this job
         total = len(all_combos)
@@ -681,7 +846,7 @@ class SimpleSearchStrategy(SearchStrategy):
                 SearchQuery(
                     query_string=combo["query"],
                     description=f"Job {matrix_index}: {combo['desc']}",
-                    expected_results=900
+                    expected_results=900,
                 )
             )
 
@@ -692,9 +857,14 @@ class SimpleSearchStrategy(SearchStrategy):
                 star_idx = (matrix_index + i) % len(star_ranges)
                 queries.append(
                     SearchQuery(
-                        query_string=f"is:public stars:{star_ranges[star_idx]} sort:updated",
-                        description=f"Job {matrix_index}: Fallback {i+1}, stars {star_ranges[star_idx]}",
-                        expected_results=900
+                        query_string=(
+                            f"is:public stars:{star_ranges[star_idx]} sort:updated"
+                        ),
+                        description=(
+                            f"Job {matrix_index}: Fallback {i + 1}, "
+                            f"stars {star_ranges[star_idx]}"
+                        ),
+                        expected_results=900,
                     )
                 )
 

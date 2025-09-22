@@ -42,13 +42,13 @@ class DatabaseRepository:
 
         # Use individual connection parameters for PostgreSQL
         return await asyncpg.create_pool(
-                host=self.settings.database_host,
-                port=self.settings.database_port,
-                user=self.settings.database_username,
-                password=self.settings.database_password.get_secret_value(),
-                database=self.settings.database_name,
-                # Scale pool size based on concurrency needs
-                min_size=max(5, concurrent_requests // 2),
+            host=self.settings.database_host,
+            port=self.settings.database_port,
+            user=self.settings.database_username,
+            password=self.settings.database_password.get_secret_value(),
+            database=self.settings.database_name,
+            # Scale pool size based on concurrency needs
+            min_size=max(5, concurrent_requests // 2),
             max_size=min(
                 50, max(self.settings.database_pool_size, concurrent_requests * 2)
             ),
@@ -124,11 +124,23 @@ class DatabaseRepository:
             # Create indexes for performance
             indexes = [
                 "CREATE INDEX IF NOT EXISTS idx_repo_stars ON repo (id)",
-                "CREATE INDEX IF NOT EXISTS idx_repo_name_with_owner ON repo (name_with_owner)",
-                "CREATE INDEX IF NOT EXISTS idx_repo_alphabet_partition ON repo (alphabet_partition)",
+                (
+                    "CREATE INDEX IF NOT EXISTS idx_repo_name_with_owner "
+                    "ON repo (name_with_owner)"
+                ),
+                (
+                    "CREATE INDEX IF NOT EXISTS idx_repo_alphabet_partition "
+                    "ON repo (alphabet_partition)"
+                ),
                 "CREATE INDEX IF NOT EXISTS idx_repo_owner ON repo (owner)",
-                "CREATE INDEX IF NOT EXISTS idx_repo_stats_date ON repo_stats (fetched_date)",
-                "CREATE INDEX IF NOT EXISTS idx_repo_stats_repo_id ON repo_stats (repo_id)",
+                (
+                    "CREATE INDEX IF NOT EXISTS idx_repo_stats_date "
+                    "ON repo_stats (fetched_date)"
+                ),
+                (
+                    "CREATE INDEX IF NOT EXISTS idx_repo_stats_repo_id "
+                    "ON repo_stats (repo_id)"
+                ),
             ]
 
             # Add table for tracking discovered repositories across runs
@@ -145,9 +157,18 @@ class DatabaseRepository:
 
             # Indexes for discovered repositories
             persistence_indexes = [
-                "CREATE INDEX IF NOT EXISTS idx_discovered_repos_last_seen ON discovered_repositories (last_seen_at)",
-                "CREATE INDEX IF NOT EXISTS idx_discovered_repos_matrix ON discovered_repositories (matrix_index)",
-                "CREATE INDEX IF NOT EXISTS idx_discovered_repos_run_id ON discovered_repositories (crawl_run_id)",
+                (
+                    "CREATE INDEX IF NOT EXISTS idx_discovered_repos_last_seen "
+                    "ON discovered_repositories (last_seen_at)"
+                ),
+                (
+                    "CREATE INDEX IF NOT EXISTS idx_discovered_repos_matrix "
+                    "ON discovered_repositories (matrix_index)"
+                ),
+                (
+                    "CREATE INDEX IF NOT EXISTS idx_discovered_repos_run_id "
+                    "ON discovered_repositories (crawl_run_id)"
+                ),
             ]
 
             for index_sql in indexes:
@@ -436,16 +457,14 @@ class DatabaseRepository:
             await self.release_connection(conn)
 
     async def get_already_discovered_repos(
-        self,
-        repo_ids: list[int],
-        hours_since_last_seen: int = 24
+        self, repo_ids: list[int], hours_since_last_seen: int = 24
     ) -> set[int]:
         """
         Check which repositories have been discovered recently.
 
         Args:
             repo_ids: List of repository IDs to check
-            hours_since_last_seen: Consider repos discovered if seen within this many hours
+            hours_since_last_seen: Consider repos discovered if seen within hours
 
         Returns:
             Set of repository IDs that were already discovered recently
@@ -457,23 +476,20 @@ class DatabaseRepository:
         try:
             # Check which repos were seen recently
             result = await conn.fetch(
-                """
+                f"""
                 SELECT repo_id FROM discovered_repositories
                 WHERE repo_id = ANY($1)
-                AND last_seen_at > NOW() - INTERVAL '%s hours'
-                """ % hours_since_last_seen,
-                repo_ids
+                AND last_seen_at > NOW() - INTERVAL '{hours_since_last_seen} hours'
+                """,
+                repo_ids,
             )
 
-            return {row['repo_id'] for row in result}
+            return {row["repo_id"] for row in result}
         finally:
             await self.release_connection(conn)
 
     async def mark_repositories_discovered(
-        self,
-        repo_ids: list[int],
-        matrix_index: int,
-        crawl_run_id: str
+        self, repo_ids: list[int], matrix_index: int, crawl_run_id: str
     ) -> list[int]:
         """
         Mark repositories as discovered and return only new ones.
@@ -490,11 +506,15 @@ class DatabaseRepository:
             return []
 
         # Check which ones we've seen recently (last 24 hours)
-        already_seen = await self.get_already_discovered_repos(repo_ids, hours_since_last_seen=24)
+        already_seen = await self.get_already_discovered_repos(
+            repo_ids, hours_since_last_seen=24
+        )
         new_repo_ids = [repo_id for repo_id in repo_ids if repo_id not in already_seen]
 
         if not new_repo_ids:
-            self.logger.info(f"🔁 All {len(repo_ids)} repositories already discovered recently")
+            self.logger.info(
+                f"🔁 All {len(repo_ids)} repositories already discovered recently"
+            )
             return []
 
         conn = await self.get_connection()
@@ -511,7 +531,7 @@ class DatabaseRepository:
                     matrix_index = $2,
                     crawl_run_id = $3
                 """,
-                [(repo_id, matrix_index, crawl_run_id) for repo_id in repo_ids]
+                [(repo_id, matrix_index, crawl_run_id) for repo_id in repo_ids],
             )
         finally:
             await self.release_connection(conn)
@@ -525,7 +545,7 @@ class DatabaseRepository:
 
         return new_repo_ids
 
-    async def get_discovery_stats(self) -> dict:
+    async def get_discovery_stats(self) -> dict[str, Any]:
         """Get statistics about discovered repositories."""
         conn = await self.get_connection()
         try:
@@ -536,19 +556,21 @@ class DatabaseRepository:
                     COUNT(DISTINCT matrix_index) as matrix_jobs_used,
                     MIN(first_discovered_at) as first_discovery,
                     MAX(last_seen_at) as last_discovery,
-                    COUNT(*) FILTER (WHERE last_seen_at > NOW() - INTERVAL '24 hours') as discovered_last_24h,
+                    COUNT(*) FILTER (
+                        WHERE last_seen_at > NOW() - INTERVAL '24 hours'
+                    ) as discovered_last_24h,
                     COUNT(*) FILTER (WHERE discovery_count > 1) as rediscovered_repos
                 FROM discovered_repositories
                 """
             )
 
             return {
-                "total_discovered": stats['total_discovered'],
-                "matrix_jobs_used": stats['matrix_jobs_used'],
-                "first_discovery": stats['first_discovery'],
-                "last_discovery": stats['last_discovery'],
-                "discovered_last_24h": stats['discovered_last_24h'],
-                "rediscovered_repos": stats['rediscovered_repos']
+                "total_discovered": stats["total_discovered"],
+                "matrix_jobs_used": stats["matrix_jobs_used"],
+                "first_discovery": stats["first_discovery"],
+                "last_discovery": stats["last_discovery"],
+                "discovered_last_24h": stats["discovered_last_24h"],
+                "rediscovered_repos": stats["rediscovered_repos"],
             }
         finally:
             await self.release_connection(conn)

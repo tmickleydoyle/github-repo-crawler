@@ -171,7 +171,7 @@ class GitHubClient:
                                 raise AuthenticationError(
                                     f"Authentication failed: {error}"
                                 )
-                            elif "RATE_LIMITED" in error_str:
+                            if "RATE_LIMITED" in error_str:
                                 logger.warning("⏱️ GraphQL rate limited, waiting...")
                                 await asyncio.sleep(60)
                                 raise RateLimitError(f"GraphQL rate limited: {error}")
@@ -285,7 +285,7 @@ class GitHubClient:
         matrix_total: int = 1,
         matrix_index: int = 0,
         target_repos: int | None = None,
-        db_repository=None,
+        db_repository: Any = None,
         csv_deduplicator: CSVDeduplicator | None = None,
     ) -> CrawlResult:
         """
@@ -305,7 +305,6 @@ class GitHubClient:
 
         repositories: list[Repository] = []
         repository_ids: set[int] = set()
-        total_duplicates_found = 0
         exhausted_queries = []
         crawl_run_id = str(uuid.uuid4())[:8]  # Short unique ID for this run
 
@@ -331,8 +330,14 @@ class GitHubClient:
 
             try:
                 await self._crawl_query(
-                    search_query, repositories, repository_ids, target_repos,
-                    matrix_index, crawl_run_id, db_repository, csv_deduplicator
+                    search_query,
+                    repositories,
+                    repository_ids,
+                    target_repos,
+                    matrix_index,
+                    crawl_run_id,
+                    db_repository,
+                    csv_deduplicator,
                 )
 
                 repos_added = len(repositories) - repos_before
@@ -372,7 +377,8 @@ class GitHubClient:
             # Report on exhausted queries
             if exhausted_queries:
                 logger.info(
-                    f"📉 Exhausted queries: {len(exhausted_queries)}/{len(search_queries)} "
+                    f"📉 Exhausted queries: {len(exhausted_queries)}/"
+                    f"{len(search_queries)} "
                     f"({100 * len(exhausted_queries) / len(search_queries):.1f}%)"
                 )
         else:
@@ -394,15 +400,14 @@ class GitHubClient:
         target_repos: int,
         matrix_index: int,
         crawl_run_id: str,
-        db_repository=None,
+        db_repository: Any = None,
         csv_deduplicator: CSVDeduplicator | None = None,
     ) -> None:
-        """Process a single search query with pagination, exhaustion tracking, and persistence."""
+        """Process a single search query with pagination and persistence."""
         after_cursor = None
         pages_processed = 0
         max_pages = 10
         total_for_query = 0
-        is_exhausted = False
 
         while len(repositories) < target_repos and pages_processed < max_pages:
             try:
@@ -411,22 +416,29 @@ class GitHubClient:
                 # First apply CSV-based deduplication if available
                 page_repositories = result["repositories"]
                 if csv_deduplicator:
-                    page_repositories = csv_deduplicator.filter_new_repositories(page_repositories)
+                    page_repositories = csv_deduplicator.filter_new_repositories(
+                        page_repositories
+                    )
 
                 # Filter repos using persistence if available
                 repo_ids_from_page = [repo.id for repo in page_repositories]
 
                 if db_repository:
                     # Check which repos were already discovered (don't mark them yet!)
-                    already_discovered = await db_repository.get_already_discovered_repos(
-                        repo_ids_from_page, hours_since_last_seen=24
+                    already_discovered = (
+                        await db_repository.get_already_discovered_repos(
+                            repo_ids_from_page, hours_since_last_seen=24
+                        )
                     )
 
                     # Only add repos that are NOT already discovered and not in this run
                     batch_added = 0
                     new_repos_this_batch = []
                     for repo in page_repositories:
-                        if repo.id not in already_discovered and repo.id not in repository_ids:
+                        if (
+                            repo.id not in already_discovered
+                            and repo.id not in repository_ids
+                        ):
                             repositories.append(repo)
                             repository_ids.add(repo.id)
                             new_repos_this_batch.append(repo.id)
@@ -435,13 +447,13 @@ class GitHubClient:
                             if len(repositories) >= target_repos:
                                 break
 
-                    # Mark these repos as discovered AFTER we've added them to our collection
+                    # Mark these repos as discovered AFTER adding to collection
                     if new_repos_this_batch:
                         await db_repository.mark_repositories_discovered(
                             new_repos_this_batch, matrix_index, crawl_run_id
                         )
                 else:
-                    # Fallback to in-memory deduplication only (but CSV filtering already applied)
+                    # Fallback to in-memory deduplication only
                     batch_added = 0
                     for repo in page_repositories:
                         if repo.id not in repository_ids:
@@ -457,14 +469,13 @@ class GitHubClient:
                 logger.debug(
                     f"📄 Page {pages_processed + 1}: "
                     f"Added {batch_added} new repositories "
-                    f"(Duplicates filtered: {len(result['repositories']) - batch_added})"
+                    f"(Filtered: {len(result['repositories']) - batch_added})"
                 )
 
                 page_info = result["pageInfo"]
 
                 # Check if query is exhausted (no more pages or very few results)
                 if not page_info["hasNextPage"]:
-                    is_exhausted = True
                     if total_for_query < 100:  # GitHub returns max 100 per page
                         logger.info(
                             f"✅ Query exhausted with {total_for_query} total results: "

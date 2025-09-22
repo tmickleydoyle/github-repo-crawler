@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+from typing import Any
 
 from .client import GitHubClient
 from .config import get_settings
@@ -76,7 +77,10 @@ async def run() -> None:
             async with DatabaseRepository() as db_repo:
                 await run_with_database(db_repo, args, logger)
         except Exception as db_error:
-            logger.warning("Database connection failed, running without persistence", error=str(db_error))
+            logger.warning(
+                "Database connection failed, running without persistence",
+                error=str(db_error),
+            )
             await run_without_database(args, logger)
 
     except Exception as e:
@@ -88,7 +92,7 @@ async def run() -> None:
         raise
 
 
-async def run_with_database(db_repo, args, logger):
+async def run_with_database(db_repo: Any, args: Any, logger: Any) -> None:
     """Run crawler with database persistence."""
     await db_repo.initialize_schema()
 
@@ -98,7 +102,7 @@ async def run_with_database(db_repo, args, logger):
     logger.info(
         "CSV deduplication initialized",
         csv_exists=csv_stats["csv_exists"],
-        known_repos=csv_stats["total_repositories"]
+        known_repos=csv_stats["total_repositories"],
     )
 
     # Show discovery stats from previous runs
@@ -108,7 +112,7 @@ async def run_with_database(db_repo, args, logger):
             "📊 Previous discovery stats",
             total_discovered=discovery_stats["total_discovered"],
             discovered_last_24h=discovery_stats["discovered_last_24h"],
-            rediscovered_count=discovery_stats["rediscovered_repos"]
+            rediscovered_count=discovery_stats["rediscovered_repos"],
         )
 
     async with GitHubClient() as client:
@@ -137,7 +141,8 @@ async def run_with_database(db_repo, args, logger):
         logger.info(
             "📈 Final discovery stats",
             total_discovered=final_stats["total_discovered"],
-            new_this_run=final_stats["total_discovered"] - discovery_stats["total_discovered"]
+            new_this_run=final_stats["total_discovered"]
+            - discovery_stats["total_discovered"],
         )
 
     logger.info(
@@ -146,7 +151,7 @@ async def run_with_database(db_repo, args, logger):
     )
 
 
-async def run_without_database(args, logger):
+async def run_without_database(args: Any, logger: Any) -> None:
     """Run crawler without database persistence (fallback mode)."""
     logger.info("Running in fallback mode without database persistence")
 
@@ -156,7 +161,7 @@ async def run_without_database(args, logger):
     logger.info(
         "CSV deduplication initialized",
         csv_exists=csv_stats["csv_exists"],
-        known_repos=csv_stats["total_repositories"]
+        known_repos=csv_stats["total_repositories"],
     )
 
     async with GitHubClient() as client:
