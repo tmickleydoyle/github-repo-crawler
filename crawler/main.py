@@ -5,6 +5,7 @@ import asyncio
 
 from .client import GitHubClient
 from .config import get_settings
+from .csv_deduplication import CSVDeduplicator
 from .db_repository import DatabaseRepository
 from .logger import get_logger, setup_logging
 
@@ -91,6 +92,15 @@ async def run_with_database(db_repo, args, logger):
     """Run crawler with database persistence."""
     await db_repo.initialize_schema()
 
+    # Create CSV deduplicator for additional filtering
+    csv_deduplicator = CSVDeduplicator()
+    csv_stats = csv_deduplicator.get_stats()
+    logger.info(
+        "CSV deduplication initialized",
+        csv_exists=csv_stats["csv_exists"],
+        known_repos=csv_stats["total_repositories"]
+    )
+
     # Show discovery stats from previous runs
     discovery_stats = await db_repo.get_discovery_stats()
     if discovery_stats["total_discovered"] > 0:
@@ -111,9 +121,16 @@ async def run_with_database(db_repo, args, logger):
             matrix_index=args.matrix_index,
             target_repos=args.repos,
             db_repository=db_repo,  # Pass db for persistence
+            csv_deduplicator=csv_deduplicator,  # Pass CSV deduplicator
         )
 
         await db_repo.store_repositories(crawl_result, args.matrix_index)
+
+        # Export to CSV for cross-run deduplication
+        run_id = f"run-{args.matrix_index}-db"
+        csv_deduplicator.export_repositories_to_csv(
+            crawl_result.repositories, run_id, args.matrix_index
+        )
 
         # Show updated discovery stats
         final_stats = await db_repo.get_discovery_stats()
@@ -133,6 +150,15 @@ async def run_without_database(args, logger):
     """Run crawler without database persistence (fallback mode)."""
     logger.info("Running in fallback mode without database persistence")
 
+    # Create CSV deduplicator for cross-run filtering
+    csv_deduplicator = CSVDeduplicator()
+    csv_stats = csv_deduplicator.get_stats()
+    logger.info(
+        "CSV deduplication initialized",
+        csv_exists=csv_stats["csv_exists"],
+        known_repos=csv_stats["total_repositories"]
+    )
+
     async with GitHubClient() as client:
         if not await client.test_connection():
             logger.error("GitHub API connection test failed")
@@ -143,10 +169,17 @@ async def run_without_database(args, logger):
             matrix_index=args.matrix_index,
             target_repos=args.repos,
             db_repository=None,  # No database persistence
+            csv_deduplicator=csv_deduplicator,  # Use CSV for deduplication
+        )
+
+        # Export to CSV for future deduplication
+        run_id = f"run-{args.matrix_index}-fallback"
+        csv_deduplicator.export_repositories_to_csv(
+            crawl_result.repositories, run_id, args.matrix_index
         )
 
         logger.info(
-            "Crawl completed successfully (no persistence)",
+            "Crawl completed successfully (CSV persistence)",
             repositories_count=len(crawl_result.repositories),
         )
 

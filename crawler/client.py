@@ -13,6 +13,7 @@ from tenacity import (
 )
 
 from .config import get_settings
+from .csv_deduplication import CSVDeduplicator
 from .domain import (
     ApiError,
     AuthenticationError,
@@ -285,6 +286,7 @@ class GitHubClient:
         matrix_index: int = 0,
         target_repos: int | None = None,
         db_repository=None,
+        csv_deduplicator: CSVDeduplicator | None = None,
     ) -> CrawlResult:
         """
         Main crawling method using clean architecture principles.
@@ -330,7 +332,7 @@ class GitHubClient:
             try:
                 await self._crawl_query(
                     search_query, repositories, repository_ids, target_repos,
-                    matrix_index, crawl_run_id, db_repository
+                    matrix_index, crawl_run_id, db_repository, csv_deduplicator
                 )
 
                 repos_added = len(repositories) - repos_before
@@ -393,6 +395,7 @@ class GitHubClient:
         matrix_index: int,
         crawl_run_id: str,
         db_repository=None,
+        csv_deduplicator: CSVDeduplicator | None = None,
     ) -> None:
         """Process a single search query with pagination, exhaustion tracking, and persistence."""
         after_cursor = None
@@ -405,8 +408,13 @@ class GitHubClient:
             try:
                 result = await self.search_repositories(search_query, after_cursor)
 
+                # First apply CSV-based deduplication if available
+                page_repositories = result["repositories"]
+                if csv_deduplicator:
+                    page_repositories = csv_deduplicator.filter_new_repositories(page_repositories)
+
                 # Filter repos using persistence if available
-                repo_ids_from_page = [repo.id for repo in result["repositories"]]
+                repo_ids_from_page = [repo.id for repo in page_repositories]
 
                 if db_repository:
                     # Check which repos were already discovered (don't mark them yet!)
@@ -417,7 +425,7 @@ class GitHubClient:
                     # Only add repos that are NOT already discovered and not in this run
                     batch_added = 0
                     new_repos_this_batch = []
-                    for repo in result["repositories"]:
+                    for repo in page_repositories:
                         if repo.id not in already_discovered and repo.id not in repository_ids:
                             repositories.append(repo)
                             repository_ids.add(repo.id)
@@ -433,9 +441,9 @@ class GitHubClient:
                             new_repos_this_batch, matrix_index, crawl_run_id
                         )
                 else:
-                    # Fallback to in-memory deduplication only
+                    # Fallback to in-memory deduplication only (but CSV filtering already applied)
                     batch_added = 0
-                    for repo in result["repositories"]:
+                    for repo in page_repositories:
                         if repo.id not in repository_ids:
                             repositories.append(repo)
                             repository_ids.add(repo.id)
