@@ -25,11 +25,7 @@ permissions:
   packages: read
 
 env:
-  POSTGRES_DB: crawler
-  POSTGRES_USER: postgres
-  POSTGRES_PASSWORD: postgres
-  POSTGRES_HOST: localhost
-  POSTGRES_PORT: 5432
+  DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
 jobs:
   validate:
@@ -147,20 +143,6 @@ jobs:
       actions: write
       id-token: write
 
-    services:
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_DB: ${{ env.POSTGRES_DB }}
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
 
     strategy:
       matrix: ${{ fromJson(needs.generate-matrix.outputs.matrix) }}
@@ -182,71 +164,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
-      - name: Create database schema
-        run: |
-          export GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
-          export POSTGRES_HOST="${{ env.POSTGRES_HOST }}"
-          export POSTGRES_PORT="${{ env.POSTGRES_PORT }}"
-          export POSTGRES_DB="${{ env.POSTGRES_DB }}"
-          export POSTGRES_USER="${{ env.POSTGRES_USER }}"
-          export POSTGRES_PASSWORD="${{ env.POSTGRES_PASSWORD }}"
-          export MAX_REPOS="${{ github.event.inputs.max_repos_per_job || '1000' }}"
-
-          python -c "
-          import asyncio
-          import asyncpg
-          import os
-
-          async def create_schema():
-              conn = await asyncpg.connect(
-                  host=os.getenv('POSTGRES_HOST'),
-                  port=int(os.getenv('POSTGRES_PORT')),
-                  user=os.getenv('POSTGRES_USER'),
-                  password=os.getenv('POSTGRES_PASSWORD'),
-                  database=os.getenv('POSTGRES_DB')
-              )
-              
-              await conn.execute('''
-                  CREATE TABLE IF NOT EXISTS repo (
-                      id BIGINT PRIMARY KEY,
-                      name TEXT NOT NULL,
-                      owner TEXT NOT NULL,
-                      url TEXT NOT NULL,
-                      created_at TIMESTAMP,
-                      alphabet_partition VARCHAR(100),
-                      name_with_owner TEXT,
-                      last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                  )
-              ''')
-              
-              await conn.execute('''
-                  CREATE TABLE IF NOT EXISTS repo_stats (
-                      repo_id BIGINT NOT NULL REFERENCES repo(id) ON DELETE CASCADE,
-                      fetched_date DATE NOT NULL,
-                      stars INT NOT NULL,
-                      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                      PRIMARY KEY(repo_id, fetched_date)
-                  )
-              ''')
-              
-              # Create indexes for performance
-              await conn.execute('CREATE INDEX IF NOT EXISTS idx_repo_name_with_owner ON repo (name_with_owner)')
-              await conn.execute('CREATE INDEX IF NOT EXISTS idx_repo_alphabet_partition ON repo (alphabet_partition)')
-              
-              await conn.close()
-              print('✅ Database schema created')
-
-          asyncio.run(create_schema())
-          "
 
       - name: Run crawler (Job ${{ matrix.job_index }})
         run: |
           export GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
-          export POSTGRES_HOST="${{ env.POSTGRES_HOST }}"
-          export POSTGRES_PORT="${{ env.POSTGRES_PORT }}"
-          export POSTGRES_DB="${{ env.POSTGRES_DB }}"
-          export POSTGRES_USER="${{ env.POSTGRES_USER }}"
-          export POSTGRES_PASSWORD="${{ env.POSTGRES_PASSWORD }}"
+          export DATABASE_URL="${{ secrets.DATABASE_URL }}"
           export MAX_REPOS="${{ github.event.inputs.max_repos_per_job || '1000' }}"
 
           echo "🚀 Starting crawler job ${{ matrix.job_index }} of ${{ github.event.inputs.matrix_size || '10' }}"
@@ -288,7 +210,7 @@ jobs:
           echo "  - MAX_REPOS: ${MAX_REPOS}"
           echo "  - Matrix Total: ${{ github.event.inputs.matrix_size || '10' }}"
           echo "  - Matrix Index: ${{ matrix.job_index }}"
-          echo "  - Database: ${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}"
+          echo "  - Database: Supabase (via DATABASE_URL)"
 
           # Run with explicit error capture
           python -m crawler.main \
@@ -407,20 +329,6 @@ jobs:
       actions: write
       id-token: write
 
-    services:
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_DB: ${{ env.POSTGRES_DB }}
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
 
     steps:
       - name: Checkout repository

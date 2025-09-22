@@ -1,0 +1,251 @@
+name: Parallel GitHub Star Crawler (Supabase)
+
+on:
+  workflow_dispatch:
+    inputs:
+      matrix_size:
+        description: "Number of parallel crawler jobs (1-40)"
+        required: false
+        default: "10"
+        type: string
+      max_repos_per_job:
+        description: "Max repositories per job"
+        required: false
+        default: "1000"
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+  id-token: write
+
+env:
+  DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+jobs:
+  generate-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.generate.outputs.matrix }}
+      matrix_size: ${{ steps.generate.outputs.matrix_size }}
+    steps:
+      - name: Generate matrix
+        id: generate
+        run: |
+          matrix_size="${{ github.event.inputs.matrix_size || '10' }}"
+          echo "matrix_size=$matrix_size" >> $GITHUB_OUTPUT
+
+          # Generate matrix indices
+          indices=$(seq 0 $((matrix_size - 1)) | jq -R . | jq -s .)
+          echo "matrix={\"index\":$indices}" >> $GITHUB_OUTPUT
+
+          echo "🎯 Generated matrix for $matrix_size parallel jobs"
+
+  crawl:
+    needs: generate-matrix
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.generate-matrix.outputs.matrix) }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run crawler
+        run: |
+          echo "🚀 Starting crawler job ${{ matrix.index }} of ${{ needs.generate-matrix.outputs.matrix_size }}"
+          echo "🎯 Target: ${{ github.event.inputs.max_repos_per_job || '1000' }} repositories"
+          echo "🌐 Using Supabase database via DATABASE_URL"
+
+          # Run crawler with Supabase
+          python -m crawler.main \
+            --repos ${{ github.event.inputs.max_repos_per_job || '1000' }} \
+            --matrix-total ${{ needs.generate-matrix.outputs.matrix_size }} \
+            --matrix-index ${{ matrix.index }} \
+            2>&1 | tee crawler_output.log
+
+          echo "✅ Crawler job ${{ matrix.index }} completed"
+
+      - name: Export job data
+        run: |
+          echo "📊 Exporting data for job ${{ matrix.index }}"
+
+          # Create job-specific export using the centralized diagnostics
+          python -c "
+          import asyncio
+          import os
+          from crawler.db_repository import DatabaseRepository
+
+          async def export_job_data():
+              if not os.environ.get('DATABASE_URL'):
+                  print('❌ DATABASE_URL not set')
+                  return
+
+              async with DatabaseRepository() as db_repo:
+                  conn = await db_repo.get_connection()
+                  try:
+                      # Export repos from this matrix job
+                      result = await conn.fetch('''
+                          SELECT r.id, r.name_with_owner, r.url, r.created_at, rs.stars
+                          FROM repo r
+                          LEFT JOIN repo_stats rs ON r.id = rs.repo_id
+                          WHERE r.alphabet_partition = 'matrix_${{ matrix.index }}'
+                          ORDER BY rs.stars DESC NULLS LAST
+                      ''')
+
+                      if result:
+                          with open('job_${{ matrix.index }}_repositories.csv', 'w') as f:
+                              f.write('id,name_with_owner,url,created_at,stars\\n')
+                              for row in result:
+                                  stars = row['stars'] if row['stars'] else 0
+                                  f.write(f'{row[\"id\"]},{row[\"name_with_owner\"]},{row[\"url\"]},{row[\"created_at\"]},{stars}\\n')
+                          print(f'✅ Exported {len(result)} repositories from job ${{ matrix.index }}')
+                      else:
+                          print('⚠️ No repositories found for this job')
+                  finally:
+                      await db_repo.release_connection(conn)
+
+          asyncio.run(export_job_data())
+          "
+
+      - name: Upload job artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: crawler-job-${{ matrix.index }}
+          path: |
+            job_${{ matrix.index }}_repositories.csv
+            crawler_output.log
+          retention-days: 7
+
+  aggregate:
+    needs: [generate-matrix, crawl]
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Generate comprehensive report
+        run: |
+          echo "📊 Generating comprehensive database report"
+
+          # Use the centralized diagnostics module
+          python -m crawler.db_diagnostics > database_health_report.txt 2>&1 || echo "Database diagnostics completed with warnings"
+
+          echo "📋 Database Health Report:"
+          cat database_health_report.txt
+
+      - name: Export final data
+        run: |
+          echo "📤 Creating final data export from Supabase"
+
+          python -c "
+          import asyncio
+          import os
+          from crawler.db_repository import DatabaseRepository
+
+          async def create_final_export():
+              if not os.environ.get('DATABASE_URL'):
+                  print('❌ DATABASE_URL not set')
+                  return
+
+              async with DatabaseRepository() as db_repo:
+                  conn = await db_repo.get_connection()
+                  try:
+                      # Get all repositories with latest stats
+                      result = await conn.fetch('''
+                          SELECT r.id, r.name_with_owner, r.url, r.created_at, rs.stars, r.last_updated
+                          FROM repo r
+                          LEFT JOIN repo_stats rs ON r.id = rs.repo_id
+                          ORDER BY rs.stars DESC NULLS LAST
+                      ''')
+
+                      total_repos = len(result)
+
+                      with open('github_repositories_final.csv', 'w') as f:
+                          f.write('id,name_with_owner,url,created_at,stars,crawled_at\\n')
+                          for row in result:
+                              stars = row['stars'] if row['stars'] else 0
+                              crawled_at = row['last_updated'] if row['last_updated'] else row['created_at']
+                              f.write(f'{row[\"id\"]},{row[\"name_with_owner\"]},{row[\"url\"]},{row[\"created_at\"]},{stars},{crawled_at}\\n')
+
+                      print(f'✅ Final export created with {total_repos:,} repositories')
+
+                      # Summary statistics
+                      total_stars = sum(row['stars'] for row in result if row['stars'])
+                      print(f'⭐ Total stars across all repositories: {total_stars:,}')
+
+                      if total_repos > 0:
+                          avg_stars = total_stars / total_repos
+                          print(f'📈 Average stars per repository: {avg_stars:.1f}')
+
+                  finally:
+                      await db_repo.release_connection(conn)
+
+          asyncio.run(create_final_export())
+          "
+
+      - name: Commit results
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+
+          # Only commit if we have new data
+          if [ -f github_repositories_final.csv ] && [ -s github_repositories_final.csv ]; then
+            git add github_repositories_final.csv
+            git commit -m "Add database exports from crawler run - $(date)" || echo "No changes to commit"
+            git push || echo "Nothing to push"
+            echo "✅ Results committed to repository"
+          else
+            echo "⚠️ No data to commit"
+          fi
+
+      - name: Upload final artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: final-results
+          path: |
+            github_repositories_final.csv
+            database_health_report.txt
+          retention-days: 30
+
+      - name: Summary
+        run: |
+          echo "🎉 GitHub Star Crawler completed successfully!"
+          echo ""
+          echo "📊 Results:"
+          echo "- Matrix jobs: ${{ needs.generate-matrix.outputs.matrix_size }}"
+          echo "- Target per job: ${{ github.event.inputs.max_repos_per_job || '1000' }}"
+          echo "- Database: Supabase (via DATABASE_URL)"
+          echo "- CSV export: github_repositories_final.csv"
+          echo ""
+          if [ -f github_repositories_final.csv ]; then
+            repo_count=$(tail -n +2 github_repositories_final.csv | wc -l)
+            echo "✅ Total repositories collected: $repo_count"
+          else
+            echo "⚠️ No final CSV generated"
+          fi
