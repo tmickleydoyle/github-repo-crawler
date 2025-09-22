@@ -405,24 +405,33 @@ class GitHubClient:
             try:
                 result = await self.search_repositories(search_query, after_cursor)
 
-                # Check which repos are new using persistence if available
+                # Filter repos using persistence if available
                 repo_ids_from_page = [repo.id for repo in result["repositories"]]
 
                 if db_repository:
-                    # Use database persistence to filter out recently discovered repos
-                    new_repo_ids = await db_repository.mark_repositories_discovered(
-                        repo_ids_from_page, matrix_index, crawl_run_id
+                    # Check which repos were already discovered (don't mark them yet!)
+                    already_discovered = await db_repository.get_already_discovered_repos(
+                        repo_ids_from_page, hours_since_last_seen=24
                     )
-                    # Only add repos that are both new in this run AND not recently discovered
+
+                    # Only add repos that are NOT already discovered and not in this run
                     batch_added = 0
+                    new_repos_this_batch = []
                     for repo in result["repositories"]:
-                        if repo.id in new_repo_ids and repo.id not in repository_ids:
+                        if repo.id not in already_discovered and repo.id not in repository_ids:
                             repositories.append(repo)
                             repository_ids.add(repo.id)
+                            new_repos_this_batch.append(repo.id)
                             batch_added += 1
 
                             if len(repositories) >= target_repos:
                                 break
+
+                    # Mark these repos as discovered AFTER we've added them to our collection
+                    if new_repos_this_batch:
+                        await db_repository.mark_repositories_discovered(
+                            new_repos_this_batch, matrix_index, crawl_run_id
+                        )
                 else:
                     # Fallback to in-memory deduplication only
                     batch_added = 0

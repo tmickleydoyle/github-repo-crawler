@@ -20,6 +20,11 @@ github-crawler-task/
 ├── scripts/                   # Utility and setup scripts
 │   ├── setup_supabase.py      # Database setup automation
 │   ├── check_persistence.py   # Persistence monitoring
+│   ├── check_schema.py        # Database schema validation
+│   ├── check_supabase_storage.py # Storage diagnostics
+│   ├── configure_pipeline.py  # Pipeline configuration
+│   ├── debug_connection_safe.py # Connection debugging
+│   ├── debug_storage_issue.py # Storage issue analysis
 │   └── calculate_scale.py     # Scale analysis
 ├── tests/                     # Test suite (pytest)
 ├── .github/workflows/         # CI/CD GitHub Actions
@@ -79,9 +84,10 @@ github-crawler-task/
 │   ├── main.py                # Entry point and orchestration
 │   ├── client.py              # GitHub API client with GraphQL
 │   ├── config.py              # Configuration management
-│   ├── models.py              # Pydantic data models
+│   ├── db_diagnostics.py      # Centralized database diagnostics
+│   ├── db_repository.py       # Database operations layer
 │   ├── domain.py              # Domain models and business logic
-│   ├── repository.py          # Database operations layer
+│   ├── logger.py              # Structured logging
 │   └── search_strategy.py     # Search strategy implementations
 ├── migrations/                 # Database schema migrations
 │   ├── 001_initial_schema.sql
@@ -98,7 +104,6 @@ github-crawler-task/
 ├── .github/workflows/          # CI/CD pipeline
 │   ├── parallel-star-crawler.yml
 ├── database_exports/           # Generated data exports
-├── configure_pipeline.py       # Pipeline validation helper
 ├── docker-compose.yml          # Local PostgreSQL setup
 ├── requirements.txt           # Python dependencies
 ├── pytest.ini                # Test configuration
@@ -178,7 +183,10 @@ python -m crawler.main --matrix-total 10 --matrix-index 1
 
 ```bash
 # Run validation script
-python configure_pipeline.py
+python scripts/configure_pipeline.py
+
+# Check database health (requires DATABASE_URL)
+python -m crawler.db_diagnostics
 ```
 
 ## 🤖 GitHub Actions Usage
