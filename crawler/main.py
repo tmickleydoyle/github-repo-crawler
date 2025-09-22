@@ -6,7 +6,7 @@ import asyncio
 from .client import GitHubClient
 from .config import get_settings
 from .db_repository import DatabaseRepository
-from .tracking_db import RepositoryTracker
+from .csv_tracker import CSVRepositoryTracker
 from .logger import get_logger, setup_logging
 
 
@@ -75,61 +75,84 @@ async def run() -> None:
         async with DatabaseRepository() as db_repo:
             await db_repo.initialize_schema()
 
-            # Initialize Supabase repository tracker for global deduplication
-            async with RepositoryTracker() as tracker:
-                # Show current tracking stats
-                tracking_stats = await tracker.get_tracking_stats()
-                if tracking_stats.get("tracking_enabled"):
-                    logger.info(
-                        "📊 Supabase tracking stats",
-                        total_discovered=tracking_stats["total_discovered"],
-                        discovered_last_24h=tracking_stats["discovered_last_24h"],
-                        total_tracked=tracking_stats["total_tracked"],
-                        avg_stars=tracking_stats.get("avg_stars", 0)
+            # Initialize CSV repository tracker for global deduplication
+            csv_tracker = CSVRepositoryTracker()
+            run_id = csv_tracker.generate_run_id(args.matrix_total, args.matrix_index)
+
+            # Show CSV tracking stats
+            csv_stats = csv_tracker.get_csv_stats()
+            logger.info(
+                "📊 CSV tracking stats",
+                csv_exists=csv_stats["csv_exists"],
+                total_repositories=csv_stats["total_repositories"],
+                unique_runs=csv_stats["unique_run_ids"],
+                latest_run=csv_stats["latest_run_id"],
+                current_run_id=run_id
+            )
+
+            # Show PostgreSQL discovery stats
+            discovery_stats = await db_repo.get_discovery_stats()
+            if discovery_stats["total_discovered"] > 0:
+                logger.info(
+                    "📊 PostgreSQL persistence stats",
+                    total_discovered=discovery_stats["total_discovered"],
+                    discovered_last_24h=discovery_stats["discovered_last_24h"],
+                    rediscovered_count=discovery_stats["rediscovered_repos"]
+                )
+
+            async with GitHubClient() as client:
+                if not await client.test_connection():
+                    logger.error("GitHub API connection test failed")
+                    return
+
+                crawl_result = await client.crawl(
+                    matrix_total=args.matrix_total,
+                    matrix_index=args.matrix_index,
+                    target_repos=args.repos,
+                    db_repository=db_repo,  # PostgreSQL for local storage
+                    csv_tracker=csv_tracker,  # CSV for global tracking
+                )
+
+                await db_repo.store_repositories(crawl_result, args.matrix_index)
+
+                # Append new repositories to CSV with run tracking
+                if crawl_result.repositories:
+                    repo_data = []
+                    for repo in crawl_result.repositories:
+                        repo_data.append({
+                            'id': repo.id,
+                            'name': repo.name,
+                            'name_with_owner': repo.name_with_owner,
+                            'url': repo.url,
+                            'created_at': repo.created_at,
+                            'stars': repo.stars,
+                            'forks': repo.forks,
+                            'language': repo.language,
+                            'owner': repo.owner,
+                            'license': repo.license,
+                            'pushed_at': repo.pushed_at,
+                            'updated_at': repo.updated_at,
+                        })
+
+                    success = csv_tracker.append_repositories_to_csv(
+                        repo_data, run_id, args.matrix_index
                     )
-                else:
-                    logger.warning("Supabase tracking not available - running without global deduplication")
 
-                # Show PostgreSQL discovery stats
-                discovery_stats = await db_repo.get_discovery_stats()
-                if discovery_stats["total_discovered"] > 0:
-                    logger.info(
-                        "📊 PostgreSQL persistence stats",
-                        total_discovered=discovery_stats["total_discovered"],
-                        discovered_last_24h=discovery_stats["discovered_last_24h"],
-                        rediscovered_count=discovery_stats["rediscovered_repos"]
-                    )
+                    if success:
+                        logger.info("Successfully appended repositories to CSV",
+                                  count=len(repo_data), run_id=run_id)
+                    else:
+                        logger.error("Failed to append repositories to CSV")
 
-                async with GitHubClient() as client:
-                    if not await client.test_connection():
-                        logger.error("GitHub API connection test failed")
-                        return
-
-                    crawl_result = await client.crawl(
-                        matrix_total=args.matrix_total,
-                        matrix_index=args.matrix_index,
-                        target_repos=args.repos,
-                        db_repository=db_repo,  # PostgreSQL for local storage
-                        repository_tracker=tracker,  # Supabase for global tracking
-                    )
-
-                    await db_repo.store_repositories(crawl_result, args.matrix_index)
-
-                    # Show updated stats
-                    final_tracking_stats = await tracker.get_tracking_stats()
-                    if final_tracking_stats.get("tracking_enabled"):
-                        logger.info(
-                            "📈 Final tracking stats",
-                            total_discovered=final_tracking_stats["total_discovered"],
-                            total_tracked=final_tracking_stats["total_tracked"]
-                        )
-
-                    final_stats = await db_repo.get_discovery_stats()
-                    logger.info(
-                        "📈 Final PostgreSQL stats",
-                        total_discovered=final_stats["total_discovered"],
-                        new_this_run=final_stats["total_discovered"] - discovery_stats["total_discovered"]
-                    )
+                # Show updated stats
+                final_csv_stats = csv_tracker.get_csv_stats()
+                final_stats = await db_repo.get_discovery_stats()
+                logger.info(
+                    "📈 Final stats",
+                    csv_total=final_csv_stats["total_repositories"],
+                    postgres_total=final_stats["total_discovered"],
+                    new_this_run=final_stats["total_discovered"] - discovery_stats["total_discovered"]
+                )
 
             logger.info(
                 "Crawl completed successfully",

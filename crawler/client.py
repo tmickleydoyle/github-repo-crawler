@@ -285,7 +285,7 @@ class GitHubClient:
         matrix_index: int = 0,
         target_repos: int | None = None,
         db_repository=None,
-        repository_tracker=None,
+        csv_tracker=None,
     ) -> CrawlResult:
         """
         Main crawling method using clean architecture principles.
@@ -409,53 +409,33 @@ class GitHubClient:
                 # Filter repos using persistence if available
                 repo_ids_from_page = [repo.id for repo in result["repositories"]]
 
-                # Check against Supabase tracking database for global deduplication
-                already_discovered = set()
-                if repository_tracker:
-                    already_discovered = await repository_tracker.get_recently_discovered(hours=24)
+                # Check against CSV tracking for global deduplication
+                known_repo_ids = set()
+                if csv_tracker:
+                    known_repo_ids = csv_tracker.get_known_repository_ids()
 
-                # Only add repos that are NOT already discovered globally and not in this run
+                # Only add repos that are NOT already known and not in this run
                 batch_added = 0
                 new_repos_this_batch = []
-                new_repo_data = []
 
                 for repo in result["repositories"]:
-                    if repo.id not in already_discovered and repo.id not in repository_ids:
+                    if repo.id not in known_repo_ids and repo.id not in repository_ids:
                         repositories.append(repo)
                         repository_ids.add(repo.id)
                         new_repos_this_batch.append(repo.id)
-
-                        # Prepare repository data for tracking
-                        new_repo_data.append({
-                            'id': repo.id,
-                            'name_with_owner': repo.name_with_owner,
-                            'url': repo.url,
-                            'stars': repo.stars,
-                            'forks': repo.forks,
-                            'language': repo.language,
-                            'created_at': repo.created_at,
-                        })
-
                         batch_added += 1
 
                         if len(repositories) >= target_repos:
                             break
 
-                # Mark these repos as discovered in Supabase tracking
-                if repository_tracker and new_repos_this_batch:
-                    await repository_tracker.mark_repositories_discovered(
-                        new_repos_this_batch, matrix_index, crawl_run_id
-                    )
-                    await repository_tracker.store_repository_data(new_repo_data)
-
-                # Legacy support for db_repository (PostgreSQL)
+                # Legacy support for db_repository (PostgreSQL persistence)
                 if db_repository and new_repos_this_batch:
                     await db_repository.mark_repositories_discovered(
                         new_repos_this_batch, matrix_index, crawl_run_id
                     )
 
-                # If no tracking is available, fall back to basic in-memory deduplication
-                if not repository_tracker and not already_discovered:
+                # If no CSV tracking is available, fall back to basic in-memory deduplication
+                if not csv_tracker:
                     batch_added = 0
                     for repo in result["repositories"]:
                         if repo.id not in repository_ids:
