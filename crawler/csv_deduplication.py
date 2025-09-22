@@ -10,57 +10,111 @@ from .logger import get_logger
 class CSVDeduplicator:
     """Handles CSV-based repository deduplication to avoid re-scraping."""
 
-    def __init__(self, csv_file_path: str = "database_exports/github_repositories_final.csv"):
+    def __init__(self, csv_file_path: str = "database_exports/github_repositories_final.csv", hour_suffix: bool = True):
         """Initialize the CSV deduplicator.
 
         Args:
             csv_file_path: Path to the CSV file containing previously scraped repositories
+            hour_suffix: If True, append current hour to filename (e.g., _h18)
         """
-        self.csv_file_path = csv_file_path
+        if hour_suffix:
+            from datetime import datetime
+            current_hour = datetime.utcnow().hour
+
+            # Insert hour suffix before file extension
+            if csv_file_path.endswith('.csv'):
+                base_path = csv_file_path[:-4]
+                self.csv_file_path = f"{base_path}_h{current_hour}.csv"
+            else:
+                self.csv_file_path = f"{csv_file_path}_h{current_hour}"
+        else:
+            self.csv_file_path = csv_file_path
         self.logger = get_logger(__name__)
         self._known_repo_ids: Set[int] = set()
         self._loaded = False
 
     def load_existing_repository_ids(self) -> Set[int]:
-        """Load repository IDs from existing CSV file.
+        """Load repository IDs from ALL existing hourly CSV files.
 
         Returns:
-            Set of repository IDs that have been previously scraped
+            Set of repository IDs that have been previously scraped across all hours
         """
         if self._loaded:
             return self._known_repo_ids
 
         repo_ids = set()
 
-        if os.path.exists(self.csv_file_path):
+        # Load from all hourly CSV files (h0 through h23) for complete deduplication
+        csv_dir = os.path.dirname(self.csv_file_path) or "database_exports"
+        base_name = "github_repositories_final"
+
+        files_loaded = 0
+        for hour in range(24):
+            hourly_file = os.path.join(csv_dir, f"{base_name}_h{hour}.csv")
+
+            if os.path.exists(hourly_file):
+                try:
+                    with open(hourly_file, 'r', newline='', encoding='utf-8') as f:
+                        reader = csv.DictReader(f)
+                        file_repo_count = 0
+                        for row in reader:
+                            if 'id' in row and row['id']:
+                                try:
+                                    repo_id = int(row['id'])
+                                    repo_ids.add(repo_id)
+                                    file_repo_count += 1
+                                except (ValueError, TypeError):
+                                    continue
+
+                    if file_repo_count > 0:
+                        files_loaded += 1
+                        self.logger.debug(
+                            f"Loaded {file_repo_count} repos from {hourly_file}"
+                        )
+
+                except Exception as e:
+                    self.logger.warning(
+                        "Failed to load hourly CSV file",
+                        csv_file=hourly_file,
+                        error=str(e)
+                    )
+
+        # Also load from the main file (legacy support)
+        main_file = os.path.join(csv_dir, f"{base_name}.csv")
+        if os.path.exists(main_file):
             try:
-                with open(self.csv_file_path, 'r', newline='', encoding='utf-8') as f:
+                with open(main_file, 'r', newline='', encoding='utf-8') as f:
                     reader = csv.DictReader(f)
+                    main_file_count = 0
                     for row in reader:
                         if 'id' in row and row['id']:
                             try:
                                 repo_id = int(row['id'])
                                 repo_ids.add(repo_id)
+                                main_file_count += 1
                             except (ValueError, TypeError):
                                 continue
 
-                self.logger.info(
-                    "CSV deduplication loaded",
-                    csv_file=self.csv_file_path,
-                    known_repos=len(repo_ids)
-                )
+                if main_file_count > 0:
+                    files_loaded += 1
+                    self.logger.debug(f"Loaded {main_file_count} repos from main file")
 
             except Exception as e:
                 self.logger.warning(
-                    "Failed to load existing CSV file",
-                    csv_file=self.csv_file_path,
+                    "Failed to load main CSV file",
+                    csv_file=main_file,
                     error=str(e)
                 )
-        else:
-            self.logger.info(
-                "No existing CSV file found - starting fresh",
-                csv_file=self.csv_file_path
-            )
+
+        self.logger.info(
+            "CSV deduplication loaded",
+            hourly_files_found=files_loaded,
+            total_known_repos=len(repo_ids),
+            current_hour_file=self.csv_file_path
+        )
+
+        if len(repo_ids) == 0:
+            self.logger.info("No existing CSV files found - starting fresh")
 
         self._known_repo_ids = repo_ids
         self._loaded = True
@@ -175,30 +229,50 @@ class CSVDeduplicator:
             return False
 
     def get_stats(self) -> Dict[str, Any]:
-        """Get statistics about the CSV file.
+        """Get statistics about all hourly CSV files.
 
         Returns:
-            Dictionary with CSV statistics
+            Dictionary with CSV statistics across all hours
         """
         stats = {
             "csv_exists": False,
             "total_repositories": 0,
-            "csv_file_path": self.csv_file_path
+            "hourly_files": 0,
+            "current_hour_file": self.csv_file_path
         }
 
-        if not os.path.exists(self.csv_file_path):
-            return stats
+        csv_dir = os.path.dirname(self.csv_file_path) or "database_exports"
+        base_name = "github_repositories_final"
+        total_repos = 0
+        files_found = 0
 
-        try:
-            stats["csv_exists"] = True
+        # Check all hourly files
+        for hour in range(24):
+            hourly_file = os.path.join(csv_dir, f"{base_name}_h{hour}.csv")
+            if os.path.exists(hourly_file):
+                try:
+                    with open(hourly_file, 'r', newline='', encoding='utf-8') as f:
+                        reader = csv.DictReader(f)
+                        repo_count = sum(1 for row in reader)
+                        total_repos += repo_count
+                        files_found += 1
+                except Exception as e:
+                    self.logger.error(f"Failed to read {hourly_file}", error=str(e))
 
-            with open(self.csv_file_path, 'r', newline='', encoding='utf-8') as f:
-                reader = csv.DictReader(f)
-                repo_count = sum(1 for row in reader)
+        # Check main file (legacy)
+        main_file = os.path.join(csv_dir, f"{base_name}.csv")
+        if os.path.exists(main_file):
+            try:
+                with open(main_file, 'r', newline='', encoding='utf-8') as f:
+                    reader = csv.DictReader(f)
+                    main_repo_count = sum(1 for row in reader)
+                    total_repos += main_repo_count
+                    files_found += 1
+            except Exception as e:
+                self.logger.error(f"Failed to read {main_file}", error=str(e))
 
-            stats["total_repositories"] = repo_count
-
-        except Exception as e:
-            self.logger.error("Failed to get CSV stats", error=str(e))
+        stats["csv_exists"] = files_found > 0
+        stats["total_repositories"] = total_repos
+        stats["hourly_files"] = files_found
 
         return stats
