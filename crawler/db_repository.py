@@ -41,7 +41,7 @@ class DatabaseRepository:
         concurrent_requests = getattr(self.settings, "crawler_concurrent_requests", 10)
 
         # Support Supabase connection URL or individual settings
-        if self.settings.database_url:
+        if self.settings.external_database_url:
             # Use Supabase connection URL
             return await asyncpg.create_pool(
                 dsn=self.settings.database_url,

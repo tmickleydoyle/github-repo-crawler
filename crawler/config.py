@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     debug: bool = Field(default=False, alias="DEBUG")
 
     # Database settings
-    database_url: str | None = Field(default=None, alias="DATABASE_URL")  # Supabase connection URL
+    external_database_url: str | None = Field(default=None, alias="DATABASE_URL")  # Supabase connection URL
     database_host: str = Field(default="localhost", alias="POSTGRES_HOST")
     database_port: int = Field(default=5432, alias="POSTGRES_PORT")
     database_name: str = Field(default="crawler", alias="POSTGRES_DB")
@@ -74,7 +74,10 @@ class Settings(BaseSettings):
 
     @property
     def database_url(self) -> str:
-        """Generate database URL from components."""
+        """Get database URL - use external URL if provided, otherwise build from components."""
+        if self.external_database_url:
+            return self.external_database_url
+        # Fallback to building from individual components
         pwd = self.database_password.get_secret_value()
         return f"postgresql://{self.database_username}:{pwd}@{self.database_host}:{self.database_port}/{self.database_name}"
 
