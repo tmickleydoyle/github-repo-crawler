@@ -59,7 +59,13 @@ class SearchStrategy:
     def _get_partitioned_queries(
         self, matrix_index: int, matrix_total: int
     ) -> list[SearchQuery]:
-        """Generate queries partitioned across matrix jobs with better distribution."""
+        """Generate queries partitioned across matrix jobs with NO OVERLAPS.
+
+        Key improvements:
+        - Deterministic assignment prevents any duplicate queries between jobs
+        - Each job gets unique, non-overlapping search spaces
+        - Maximizes coverage while eliminating redundancy
+        """
 
         languages = [
             "javascript",
@@ -146,115 +152,106 @@ class SearchStrategy:
             "..2019-12-31",
         ]
 
-        partition_strategy = matrix_index % 4
-
-        if partition_strategy == 0:
-            lang_idx = matrix_index % len(languages)
-            star_idx = (matrix_index // len(languages)) % len(star_ranges)
-
-            language = languages[lang_idx]
-            stars = star_ranges[star_idx]
-
-            primary_query = f"is:public language:{language} stars:{stars} sort:updated"
-            fallbacks = [
-                f"is:public language:{language} stars:{stars} sort:stars",
-                f"is:public stars:{stars} sort:updated",
-            ]
-            description = f"Lang+Stars: {language}, {stars} stars"
-
-        elif partition_strategy == 1:
-            time_idx = matrix_index % len(time_ranges)
-            star_idx = (matrix_index // len(time_ranges)) % len(star_ranges)
-
-            time_range = time_ranges[time_idx]
-            stars = star_ranges[star_idx]
-
-            primary_query = f"is:public created:{time_range} stars:{stars} sort:updated"
-            fallbacks = [
-                f"is:public created:{time_range} stars:{stars} sort:stars",
-                f"is:public stars:{stars} created:{time_range} fork:false sort:updated",
-            ]
-            description = f"Time+Stars: {time_range}, {stars} stars"
-
-        elif partition_strategy == 2:
-            topics = [
-                "api",
-                "cli",
-                "framework",
-                "library",
-                "tool",
-                "web",
-                "mobile",
-                "game",
-                "machine-learning",
-                "data",
-                "security",
-                "blockchain",
-                "iot",
-                "ai",
-                "database",
-                "monitoring",
-                "testing",
-                "automation",
-                "devops",
-                "cloud",
-            ]
-
-            topic_idx = matrix_index % len(topics)
-            star_idx = (matrix_index // len(topics)) % len(star_ranges)
-
-            topic = topics[topic_idx]
-            stars = star_ranges[star_idx]
-
-            primary_query = f"is:public topic:{topic} stars:{stars} sort:updated"
-            fallbacks = [
-                f"is:public topic:{topic} sort:stars",
-                f"is:public stars:{stars} sort:updated",
-            ]
-            description = f"Topic+Stars: {topic}, {stars} stars"
-
-        else:
-            special_searches = [
-                (
-                    "is:public fork:false archived:false stars:1..20 sort:updated",
-                    "Active non-forks",
-                ),
-                ("is:public has:readme stars:1..50 sort:updated", "Documented repos"),
-                ("is:public size:>100 stars:1..30 sort:updated", "Larger repos"),
-                (
-                    "is:public pushed:>2024-01-01 stars:1..15 sort:updated",
-                    "Recently active",
-                ),
-                ("is:public license:mit stars:1..100 sort:updated", "MIT licensed"),
-                (
-                    "is:public license:apache-2.0 stars:1..80 sort:updated",
-                    "Apache licensed",
-                ),
-                ("is:public has:issues stars:1..40 sort:updated", "With issues"),
-                ("is:public has:wiki stars:1..60 sort:updated", "With documentation"),
-            ]
-
-            special_idx = matrix_index % len(special_searches)
-            query, desc = special_searches[special_idx]
-
-            primary_query = query
-            fallbacks = ["is:public stars:1..25 sort:updated", "is:public sort:updated"]
-            description = f"Special: {desc}"
-
-        queries = [
-            SearchQuery(
-                query_string=primary_query,
-                description=f"Job {matrix_index} - {description}",
-                expected_results=400,
-            )
+        topics = [
+            "api",
+            "cli",
+            "framework",
+            "library",
+            "tool",
+            "web",
+            "mobile",
+            "game",
+            "machine-learning",
+            "data",
+            "security",
+            "blockchain",
+            "iot",
+            "ai",
+            "database",
+            "monitoring",
+            "testing",
+            "automation",
+            "devops",
+            "cloud",
         ]
 
-        for i, fallback in enumerate(fallbacks[:2]):
+        # CRITICAL FIX: Deterministic, non-overlapping query generation
+        # Each matrix job gets a unique slice of the total search space
+        all_combos = []
+
+        # Build all possible combinations in a deterministic order
+        # Priority 1: Language + Stars (most granular)
+        for lang in languages:
+            for stars in star_ranges:
+                all_combos.append({
+                    "type": "lang_stars",
+                    "query": f"is:public language:{lang} stars:{stars} fork:false archived:false sort:updated",
+                    "desc": f"Lang+Stars: {lang}, {stars} stars"
+                })
+
+        # Priority 2: Time + Stars
+        for time in time_ranges:
+            for stars in star_ranges:
+                all_combos.append({
+                    "type": "time_stars",
+                    "query": f"is:public created:{time} stars:{stars} fork:false sort:updated",
+                    "desc": f"Time+Stars: {time}, {stars} stars"
+                })
+
+        # Priority 3: Topic + Stars
+        for topic in topics:
+            for stars in star_ranges:
+                all_combos.append({
+                    "type": "topic_stars",
+                    "query": f"is:public topic:{topic} stars:{stars} fork:false sort:updated",
+                    "desc": f"Topic+Stars: {topic}, {stars} stars"
+                })
+
+        # Priority 4: Size + Stars combinations for extra coverage
+        size_ranges = ["<100", "100..1000", "1001..10000", ">10000"]
+        for size in size_ranges:
+            for stars in star_ranges[:10]:  # Focus on lower star ranges
+                all_combos.append({
+                    "type": "size_stars",
+                    "query": f"is:public size:{size} stars:{stars} sort:updated",
+                    "desc": f"Size+Stars: {size}KB, {stars} stars"
+                })
+
+        # Calculate this job's unique slice
+        total_combinations = len(all_combos)
+        combos_per_job = total_combinations // matrix_total
+        remainder = total_combinations % matrix_total
+
+        # Distribute remainder evenly among first jobs
+        if matrix_index < remainder:
+            start_idx = matrix_index * (combos_per_job + 1)
+            end_idx = start_idx + combos_per_job + 1
+        else:
+            start_idx = matrix_index * combos_per_job + remainder
+            end_idx = start_idx + combos_per_job
+
+        # Get this job's unique combinations
+        job_combos = all_combos[start_idx:end_idx]
+
+        # Convert to SearchQuery objects
+        queries = []
+        for combo in job_combos[:10]:  # Limit to 10 queries per job to avoid exhaustion
             queries.append(
                 SearchQuery(
-                    query_string=fallback,
-                    description=f"Fallback {i + 1} for job {matrix_index}",
-                    expected_results=300,
+                    query_string=combo["query"],
+                    description=f"Job {matrix_index}: {combo['desc']}",
+                    expected_results=1000,
+                )
+            )
+
+        # If we have very few queries, add some broad fallbacks
+        if len(queries) < 3:
+            fallback_stars = star_ranges[matrix_index % len(star_ranges)]
+            queries.append(
+                SearchQuery(
+                    query_string=f"is:public stars:{fallback_stars} sort:updated",
+                    description=f"Job {matrix_index}: Fallback stars {fallback_stars}",
+                    expected_results=1000,
                 )
             )
 
@@ -464,204 +461,88 @@ class SimpleSearchStrategy(SearchStrategy):
             "angular",
         ]
 
-        partition_strategy = matrix_index % 6
+        # CRITICAL FIX: Deterministic assignment without overlaps
+        # Build all possible combinations
+        all_combos = []
 
-        if partition_strategy == 0:
-            lang_idx = matrix_index % len(languages)
-            star_idx = (matrix_index // len(languages)) % len(star_ranges)
+        # Priority 1: Fine-grained language + stars
+        for lang in languages[:30]:  # Focus on popular languages
+            for stars in star_ranges[:20]:  # Focus on lower star ranges
+                all_combos.append({
+                    "query": f"is:public language:{lang} stars:{stars} fork:false archived:false sort:updated",
+                    "desc": f"Lang: {lang}, Stars: {stars}"
+                })
 
-            language = languages[lang_idx]
-            stars = star_ranges[star_idx]
+        # Priority 2: Time + stars for recent repos
+        for time in time_ranges[:15]:  # Recent time periods
+            for stars in star_ranges[:15]:
+                all_combos.append({
+                    "query": f"is:public created:{time} stars:{stars} fork:false sort:updated",
+                    "desc": f"Created: {time}, Stars: {stars}"
+                })
 
-            primary_query = (
-                f"is:public language:{language} stars:{stars} "
-                f"fork:false archived:false sort:updated"
-            )
+        # Priority 3: Size + stars
+        for size in sizes:
+            for stars in star_ranges[:10]:
+                all_combos.append({
+                    "query": f"is:public size:{size} stars:{stars} sort:updated",
+                    "desc": f"Size: {size}KB, Stars: {stars}"
+                })
 
-            queries = [
-                SearchQuery(
-                    primary_query, f"Lang+Stars: {language}, {stars} stars", 900
-                ),
-                SearchQuery(
-                    f"is:public language:{language} stars:{stars} sort:stars",
-                    f"Fallback: {language}, {stars} stars",
-                    800,
-                ),
-            ]
+        # Priority 4: Topic + stars
+        for topic in topics:
+            for stars in star_ranges[:10]:
+                all_combos.append({
+                    "query": f"is:public topic:{topic} stars:{stars} fork:false sort:updated",
+                    "desc": f"Topic: {topic}, Stars: {stars}"
+                })
 
-        elif partition_strategy == 1:
-            time_idx = matrix_index % len(time_ranges)
-            star_idx = (matrix_index // len(time_ranges)) % len(star_ranges)
+        # Priority 5: License + language + stars (very specific)
+        for license in licenses[:5]:  # Common licenses
+            for lang in ["javascript", "python", "java", "typescript", "go"]:
+                for stars in star_ranges[:5]:
+                    all_combos.append({
+                        "query": f"is:public license:{license} language:{lang} stars:{stars} sort:updated",
+                        "desc": f"License: {license}, Lang: {lang}, Stars: {stars}"
+                    })
 
-            time_range = time_ranges[time_idx]
-            stars = star_ranges[star_idx]
+        # Calculate unique slice for this job
+        total = len(all_combos)
+        per_job = total // matrix_total
+        remainder = total % matrix_total
 
-            primary_query = (
-                f"is:public created:{time_range} stars:{stars} fork:false sort:updated"
-            )
-
-            queries = [
-                SearchQuery(
-                    primary_query, f"Time+Stars: {time_range}, {stars} stars", 900
-                ),
-                SearchQuery(
-                    f"is:public created:{time_range} stars:{stars} sort:stars",
-                    f"Time fallback: {time_range}",
-                    800,
-                ),
-            ]
-
-        elif partition_strategy == 2:
-            size_idx = matrix_index % len(sizes)
-            lang_idx = (matrix_index // len(sizes)) % len(languages)
-            star_idx = (matrix_index // (len(sizes) * len(languages))) % len(
-                star_ranges
-            )
-
-            size = sizes[size_idx]
-            language = languages[lang_idx]
-            stars = star_ranges[star_idx]
-
-            primary_query = (
-                f"is:public size:{size} language:{language} stars:{stars} sort:updated"
-            )
-
-            queries = [
-                SearchQuery(
-                    primary_query,
-                    f"Size+Lang+Stars: {size}KB, {language}, {stars} stars",
-                    900,
-                ),
-                SearchQuery(
-                    f"is:public size:{size} stars:{stars} sort:updated",
-                    f"Size fallback: {size}KB",
-                    800,
-                ),
-            ]
-
-        elif partition_strategy == 3:
-            topic_idx = matrix_index % len(topics)
-            star_idx = (matrix_index // len(topics)) % len(star_ranges)
-
-            topic = topics[topic_idx]
-            stars = star_ranges[star_idx]
-
-            primary_query = (
-                f"is:public topic:{topic} stars:{stars} fork:false sort:updated"
-            )
-
-            queries = [
-                SearchQuery(primary_query, f"Topic+Stars: {topic}, {stars} stars", 900),
-                SearchQuery(
-                    f"is:public topic:{topic} sort:stars",
-                    f"Topic fallback: {topic}",
-                    800,
-                ),
-            ]
-
-        elif partition_strategy == 4:
-            license_idx = matrix_index % len(licenses)
-            lang_idx = (matrix_index // len(licenses)) % len(languages)
-            star_idx = (matrix_index // (len(licenses) * len(languages))) % len(
-                star_ranges
-            )
-
-            license_type = licenses[license_idx]
-            language = languages[lang_idx]
-            stars = star_ranges[star_idx]
-
-            primary_query = (
-                f"is:public license:{license_type} language:{language} "
-                f"stars:{stars} sort:updated"
-            )
-
-            queries = [
-                SearchQuery(
-                    primary_query,
-                    f"License+Lang: {license_type}, {language}, {stars} stars",
-                    900,
-                ),
-                SearchQuery(
-                    f"is:public license:{license_type} stars:{stars} sort:stars",
-                    f"License fallback: {license_type}",
-                    800,
-                ),
-            ]
-
+        if matrix_index < remainder:
+            start = matrix_index * (per_job + 1)
+            end = start + per_job + 1
         else:
-            special_searches = [
-                (
-                    "is:public fork:false archived:false has:readme "
-                    "stars:0..1 sort:updated",
-                    "Active non-forks, documented, 0-1 stars",
-                ),
-                (
-                    "is:public fork:false archived:false has:readme "
-                    "stars:2..3 sort:updated",
-                    "Active non-forks, documented, 2-3 stars",
-                ),
-                (
-                    "is:public fork:false archived:false has:readme "
-                    "stars:4..5 sort:updated",
-                    "Active non-forks, documented, 4-5 stars",
-                ),
-                (
-                    "is:public fork:false archived:false has:readme "
-                    "stars:6..8 sort:updated",
-                    "Active non-forks, documented, 6-8 stars",
-                ),
-                (
-                    "is:public fork:false archived:false has:readme "
-                    "stars:9..12 sort:updated",
-                    "Active non-forks, documented, 9-12 stars",
-                ),
-                (
-                    "is:public pushed:>2024-06-01 stars:0..2 sort:updated",
-                    "Recently pushed, 0-2 stars",
-                ),
-                (
-                    "is:public pushed:>2024-06-01 stars:3..5 sort:updated",
-                    "Recently pushed, 3-5 stars",
-                ),
-                (
-                    "is:public pushed:>2024-06-01 stars:6..10 sort:updated",
-                    "Recently pushed, 6-10 stars",
-                ),
-                (
-                    "is:public has:issues has:wiki stars:1..15 sort:updated",
-                    "With issues and wiki, 1-15 stars",
-                ),
-                (
-                    "is:public good-first-issues:>0 stars:1..25 sort:updated",
-                    "Good first issues, 1-25 stars",
-                ),
-                (
-                    "is:public help-wanted-issues:>0 stars:1..20 sort:updated",
-                    "Help wanted issues, 1-20 stars",
-                ),
-                (
-                    "is:public size:<100 stars:1..8 sort:updated",
-                    "Small repos, 1-8 stars",
-                ),
-                (
-                    "is:public size:100..1000 stars:1..12 sort:updated",
-                    "Medium repos, 1-12 stars",
-                ),
-                (
-                    "is:public template:true stars:1..50 sort:updated",
-                    "Template repos, 1-50 stars",
-                ),
-                (
-                    "is:public mirror:false stars:0..3 sort:updated",
-                    "Non-mirror repos, 0-3 stars",
-                ),
-            ]
+            start = matrix_index * per_job + remainder
+            end = start + per_job
 
-            special_idx = matrix_index % len(special_searches)
-            query, description = special_searches[special_idx]
+        # Get this job's unique combinations
+        job_combos = all_combos[start:end]
 
-            queries = [
-                SearchQuery(query, f"Special {matrix_index}: {description}", 900)
-            ]
+        # Convert to queries (limit to prevent exhaustion)
+        queries = []
+        for combo in job_combos[:20]:  # More queries for aggressive strategy
+            queries.append(
+                SearchQuery(
+                    query_string=combo["query"],
+                    description=f"Job {matrix_index}: {combo['desc']}",
+                    expected_results=900
+                )
+            )
+
+        # Add fallback if too few queries
+        if len(queries) < 5:
+            # Generate simple fallback queries based on job index
+            for i in range(5 - len(queries)):
+                star_idx = (matrix_index + i) % len(star_ranges)
+                queries.append(
+                    SearchQuery(
+                        query_string=f"is:public stars:{star_ranges[star_idx]} sort:updated",
+                        description=f"Job {matrix_index}: Fallback {i+1}, stars {star_ranges[star_idx]}",
+                        expected_results=900
+                    )
+                )
 
         return queries

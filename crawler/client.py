@@ -301,9 +301,15 @@ class GitHubClient:
 
         repositories: list[Repository] = []
         repository_ids: set[int] = set()
+        total_duplicates_found = 0
+        exhausted_queries = []
 
         search_queries = self.search_strategy.generate_queries(
             matrix_index, matrix_total
+        )
+
+        logger.info(
+            f"📋 Processing {len(search_queries)} unique queries for job {matrix_index}"
         )
 
         for query_idx, search_query in enumerate(search_queries):
@@ -315,14 +321,22 @@ class GitHubClient:
                 f"{search_query.query_string}"
             )
 
+            repos_before = len(repositories)
+
             try:
                 await self._crawl_query(
                     search_query, repositories, repository_ids, target_repos
                 )
+
+                repos_added = len(repositories) - repos_before
+                if repos_added < 100:  # Query didn't yield full results
+                    exhausted_queries.append(search_query.query_string)
+
             except SearchExhaustedError:
                 logger.warning(
                     f"⚠️ Search exhausted for query: {search_query.query_string}"
                 )
+                exhausted_queries.append(search_query.query_string)
                 continue
             except Exception as e:
                 logger.error(
@@ -347,13 +361,20 @@ class GitHubClient:
             if crawl_result.total_stars > 0:
                 average_stars = crawl_result.total_stars / len(final_repositories)
                 logger.info(f"📈 Average stars: {average_stars:.1f}")
+
+            # Report on exhausted queries
+            if exhausted_queries:
+                logger.info(
+                    f"📉 Exhausted queries: {len(exhausted_queries)}/{len(search_queries)} "
+                    f"({100 * len(exhausted_queries) / len(search_queries):.1f}%)"
+                )
         else:
             logger.warning("⚠️ No repositories collected")
 
         if len(final_repositories) < target_repos:
             logger.warning(
                 f"⚠️ Only collected {len(final_repositories)}/{target_repos} repos. "
-                f"Search space may be exhausted for this partition."
+                f"Consider increasing matrix_total for better distribution."
             )
 
         return crawl_result
@@ -365,10 +386,12 @@ class GitHubClient:
         repository_ids: set[int],
         target_repos: int,
     ) -> None:
-        """Process a single search query with pagination."""
+        """Process a single search query with pagination and exhaustion tracking."""
         after_cursor = None
         pages_processed = 0
         max_pages = 10
+        total_for_query = 0
+        is_exhausted = False
 
         while len(repositories) < target_repos and pages_processed < max_pages:
             try:
@@ -384,13 +407,32 @@ class GitHubClient:
                         if len(repositories) >= target_repos:
                             break
 
+                total_for_query += len(result["repositories"])
+
                 logger.debug(
                     f"📄 Page {pages_processed + 1}: "
-                    f"Added {batch_added} new repositories"
+                    f"Added {batch_added} new repositories "
+                    f"(Duplicates filtered: {len(result['repositories']) - batch_added})"
                 )
 
                 page_info = result["pageInfo"]
+
+                # Check if query is exhausted (no more pages or very few results)
                 if not page_info["hasNextPage"]:
+                    is_exhausted = True
+                    if total_for_query < 100:  # GitHub returns max 100 per page
+                        logger.info(
+                            f"✅ Query exhausted with {total_for_query} total results: "
+                            f"{search_query.query_string}"
+                        )
+                    break
+
+                # If we're getting too many duplicates, skip to next query
+                if batch_added == 0 and pages_processed > 2:
+                    logger.warning(
+                        f"⚠️ Query yielding only duplicates, moving on: "
+                        f"{search_query.query_string}"
+                    )
                     break
 
                 after_cursor = page_info["endCursor"]
