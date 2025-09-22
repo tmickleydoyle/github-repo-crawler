@@ -1,22 +1,22 @@
-aiohttp
-tenacity
-asyncpg
-pydantic
-pydantic-settings
-python-dotenv
-python-dateutil
+aiohttp==3.12.15
+tenacity==9.1.2
+asyncpg==0.30.0
+pydantic==2.11.7
+pydantic-settings==2.10.1
+python-dotenv==1.1.1
+python-dateutil==2.9.0.post0
+structlog==25.4.0
 
 # Testing dependencies
-pytest
-pytest-asyncio
-pytest-mock
-pytest-cov
+pytest==8.4.2
+pytest-asyncio==1.2.0
+pytest-mock==3.15.1
+pytest-cov==7.0.0
 
-# Code quality dependencies  
-black
-flake8
-mypy
-isort
+# Code quality dependencies
+black==25.1.0
+flake8==7.3.0
+mypy==1.18.2
 
-# Development dependencies
-pre-commit
+# Development dependencies (optional)
+# Note: isort and pre-commit can be added if needed
