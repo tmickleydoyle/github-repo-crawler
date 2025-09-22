@@ -110,7 +110,7 @@ async def run() -> None:
                     matrix_index=args.matrix_index,
                     target_repos=args.repos,
                     db_repository=db_repo,  # PostgreSQL for local storage
-                    csv_tracker=csv_tracker,  # CSV for global tracking
+                    csv_tracker=None,  # Temporarily disable CSV tracking
                 )
 
                 await db_repo.store_repositories(crawl_result, args.matrix_index)

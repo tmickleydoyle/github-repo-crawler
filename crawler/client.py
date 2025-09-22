@@ -416,6 +416,8 @@ class GitHubClient:
                     logger.debug("CSV tracking loaded",
                                known_repo_count=len(known_repo_ids),
                                csv_file=csv_tracker.csv_file_path)
+                else:
+                    logger.debug("CSV tracking disabled - using basic deduplication")
 
                 # Only add repos that are NOT already known and not in this run
                 batch_added = 0
