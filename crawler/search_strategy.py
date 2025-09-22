@@ -6,6 +6,7 @@ diverse GitHub repositories while respecting API limits.
 """
 
 from dataclasses import dataclass
+from datetime import datetime
 
 from .domain import SearchQuery
 
@@ -400,6 +401,54 @@ class SimpleSearchStrategy(SearchStrategy):
     1000-result API limit.
     """
 
+    def _get_hour_specific_time_ranges(self) -> list[str]:
+        """Generate time ranges filtered by current hour of day.
+
+        This creates time ranges that target repositories created during
+        the same hour of day as the current time, across all dates.
+        """
+        current_hour = datetime.utcnow().hour
+
+        # Generate date ranges for the current hour across different months/years
+        hour_ranges = []
+
+        # Recent months with hourly precision
+        base_ranges = [
+            ("2024-12", "2024-12-31"),
+            ("2024-11", "2024-11-30"),
+            ("2024-10", "2024-10-31"),
+            ("2024-09", "2024-09-30"),
+            ("2024-08", "2024-08-31"),
+            ("2024-07", "2024-07-31"),
+            ("2024-06", "2024-06-30"),
+            ("2024-05", "2024-05-31"),
+            ("2024-04", "2024-04-30"),
+            ("2024-03", "2024-03-31"),
+            ("2024-02", "2024-02-29"),
+            ("2024-01", "2024-01-31"),
+            ("2023-12", "2023-12-31"),
+            ("2023-11", "2023-11-30"),
+            ("2023-10", "2023-10-31"),
+            ("2023-09", "2023-09-30"),
+            ("2023-08", "2023-08-31"),
+            ("2023-07", "2023-07-31"),
+            ("2023-06", "2023-06-30"),
+            ("2023-05", "2023-05-31"),
+            ("2023-04", "2023-04-30"),
+            ("2023-03", "2023-03-31"),
+            ("2023-02", "2023-02-28"),
+            ("2023-01", "2023-01-31"),
+        ]
+
+        # For each month, create hourly time ranges
+        for start_month, end_date in base_ranges:
+            # Create time range for the current hour within this month
+            start_time = f"{start_month}-01T{current_hour:02d}:00:00Z"
+            end_time = f"{end_date}T{current_hour:02d}:59:59Z"
+            hour_ranges.append(f"{start_time}..{end_time}")
+
+        return hour_ranges
+
     def generate_queries(
         self, matrix_index: int = 0, matrix_total: int = 1
     ) -> list[SearchQuery]:
@@ -507,40 +556,8 @@ class SimpleSearchStrategy(SearchStrategy):
             ">50000",
         ]
 
-        time_ranges = [
-            "2024-12-01..2025-12-31",
-            "2024-11-01..2024-11-30",
-            "2024-10-01..2024-10-31",
-            "2024-09-01..2024-09-30",
-            "2024-08-01..2024-08-31",
-            "2024-07-01..2024-07-31",
-            "2024-06-01..2024-06-30",
-            "2024-05-01..2024-05-31",
-            "2024-04-01..2024-04-30",
-            "2024-03-01..2024-03-31",
-            "2024-02-01..2024-02-29",
-            "2024-01-01..2024-01-31",
-            "2023-10-01..2023-12-31",
-            "2023-07-01..2023-09-30",
-            "2023-04-01..2023-06-30",
-            "2023-01-01..2023-03-31",
-            "2022-10-01..2022-12-31",
-            "2022-07-01..2022-09-30",
-            "2022-04-01..2022-06-30",
-            "2022-01-01..2022-03-31",
-            "2021-10-01..2021-12-31",
-            "2021-07-01..2021-09-30",
-            "2021-04-01..2021-06-30",
-            "2021-01-01..2021-03-31",
-            "2020-07-01..2020-12-31",
-            "2020-01-01..2020-06-30",
-            "2019-07-01..2019-12-31",
-            "2019-01-01..2019-06-30",
-            "2018-07-01..2018-12-31",
-            "2018-01-01..2018-06-30",
-            "2017-01-01..2017-12-31",
-            "..2016-12-31",
-        ]
+        # Use hour-specific time ranges based on current time
+        time_ranges = self._get_hour_specific_time_ranges()
 
         sizes = [
             "<5",
