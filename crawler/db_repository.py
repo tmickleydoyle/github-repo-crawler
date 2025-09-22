@@ -40,23 +40,8 @@ class DatabaseRepository:
         # Optimize pool settings for high-concurrency matrix runs
         concurrent_requests = getattr(self.settings, "crawler_concurrent_requests", 10)
 
-        # Support Supabase connection URL or individual settings
-        if self.settings.external_database_url:
-            # Use Supabase connection URL
-            return await asyncpg.create_pool(
-                dsn=self.settings.database_url,
-                # Scale pool size based on concurrency needs
-                min_size=max(5, concurrent_requests // 2),
-                max_size=min(100, concurrent_requests * 2),
-                # Optimize for Supabase cloud database
-                command_timeout=60,
-                server_settings={
-                    'jit': 'off',  # Disable JIT for better connection stability
-                }
-            )
-        else:
-            # Use individual connection parameters
-            return await asyncpg.create_pool(
+        # Use individual connection parameters for PostgreSQL
+        return await asyncpg.create_pool(
                 host=self.settings.database_host,
                 port=self.settings.database_port,
                 user=self.settings.database_username,
