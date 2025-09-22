@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     debug: bool = Field(default=False, alias="DEBUG")
 
     # Database settings
+    database_url: str | None = Field(default=None, alias="DATABASE_URL")  # Supabase connection URL
     database_host: str = Field(default="localhost", alias="POSTGRES_HOST")
     database_port: int = Field(default=5432, alias="POSTGRES_PORT")
     database_name: str = Field(default="crawler", alias="POSTGRES_DB")

@@ -1,8 +1,33 @@
-# GitHub Star Crawler
+# GitHub Repository Crawler
 
-A high-performance, scalable Python application that crawls GitHub repositories using the GraphQL API to collect star counts and repository metadata. This project implements a parallel crawling architecture designed to efficiently handle large-scale data collection while respecting GitHub's rate limits.
+A scalable, production-ready GitHub repository crawler designed for discovering and tracking millions of repositories with persistence and deduplication.
 
-## 📋 Project Overview
+## 📋 Project Structure & Organization
+
+Following CLAUDE.md principles with clear separation of concerns:
+
+```
+github-crawler-task/
+├── crawler/                    # Main application package
+│   ├── __init__.py
+│   ├── main.py                # Entry point
+│   ├── client.py              # GitHub API client
+│   ├── config.py              # Configuration management (Pydantic)
+│   ├── db_repository.py       # Database operations (Repository pattern)
+│   ├── domain.py              # Domain models and types
+│   ├── logger.py              # Centralized structured logging
+│   └── search_strategy.py     # Search query generation strategies
+├── scripts/                   # Utility and setup scripts
+│   ├── setup_supabase.py      # Database setup automation
+│   ├── check_persistence.py   # Persistence monitoring
+│   └── calculate_scale.py     # Scale analysis
+├── tests/                     # Test suite (pytest)
+├── .github/workflows/         # CI/CD GitHub Actions
+├── docs/                      # Documentation
+└── pyproject.toml            # Modern Python packaging
+```
+
+## 🚀 Key Features
 
 - **Parallel GraphQL API crawling** using GitHub's GraphQL API v4
 - **PostgreSQL database** with optimized schema for efficient updates

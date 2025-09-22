@@ -40,14 +40,30 @@ class DatabaseRepository:
         # Optimize pool settings for high-concurrency matrix runs
         concurrent_requests = getattr(self.settings, "crawler_concurrent_requests", 10)
 
-        return await asyncpg.create_pool(
-            host=self.settings.database_host,
-            port=self.settings.database_port,
-            user=self.settings.database_username,
-            password=self.settings.database_password.get_secret_value(),
-            database=self.settings.database_name,
-            # Scale pool size based on concurrency needs
-            min_size=max(5, concurrent_requests // 2),
+        # Support Supabase connection URL or individual settings
+        if self.settings.database_url:
+            # Use Supabase connection URL
+            return await asyncpg.create_pool(
+                dsn=self.settings.database_url,
+                # Scale pool size based on concurrency needs
+                min_size=max(5, concurrent_requests // 2),
+                max_size=min(100, concurrent_requests * 2),
+                # Optimize for Supabase cloud database
+                command_timeout=60,
+                server_settings={
+                    'jit': 'off',  # Disable JIT for better connection stability
+                }
+            )
+        else:
+            # Use individual connection parameters
+            return await asyncpg.create_pool(
+                host=self.settings.database_host,
+                port=self.settings.database_port,
+                user=self.settings.database_username,
+                password=self.settings.database_password.get_secret_value(),
+                database=self.settings.database_name,
+                # Scale pool size based on concurrency needs
+                min_size=max(5, concurrent_requests // 2),
             max_size=min(
                 50, max(self.settings.database_pool_size, concurrent_requests * 2)
             ),
@@ -130,7 +146,29 @@ class DatabaseRepository:
                 "CREATE INDEX IF NOT EXISTS idx_repo_stats_repo_id ON repo_stats (repo_id)",
             ]
 
+            # Add table for tracking discovered repositories across runs
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS discovered_repositories (
+                    repo_id BIGINT PRIMARY KEY,
+                    first_discovered_at TIMESTAMP DEFAULT NOW(),
+                    last_seen_at TIMESTAMP DEFAULT NOW(),
+                    discovery_count INTEGER DEFAULT 1,
+                    matrix_index INTEGER,
+                    crawl_run_id VARCHAR(50)
+                )
+            """)
+
+            # Indexes for discovered repositories
+            persistence_indexes = [
+                "CREATE INDEX IF NOT EXISTS idx_discovered_repos_last_seen ON discovered_repositories (last_seen_at)",
+                "CREATE INDEX IF NOT EXISTS idx_discovered_repos_matrix ON discovered_repositories (matrix_index)",
+                "CREATE INDEX IF NOT EXISTS idx_discovered_repos_run_id ON discovered_repositories (crawl_run_id)",
+            ]
+
             for index_sql in indexes:
+                await conn.execute(index_sql)
+
+            for index_sql in persistence_indexes:
                 await conn.execute(index_sql)
 
             self.logger.info("Database schema initialized successfully")
@@ -409,6 +447,124 @@ class DatabaseRepository:
             self.logger.info(f"Cleaned up {count} old statistics records")
             return count
 
+        finally:
+            await self.release_connection(conn)
+
+    async def get_already_discovered_repos(
+        self,
+        repo_ids: list[int],
+        hours_since_last_seen: int = 24
+    ) -> set[int]:
+        """
+        Check which repositories have been discovered recently.
+
+        Args:
+            repo_ids: List of repository IDs to check
+            hours_since_last_seen: Consider repos discovered if seen within this many hours
+
+        Returns:
+            Set of repository IDs that were already discovered recently
+        """
+        if not repo_ids:
+            return set()
+
+        conn = await self.get_connection()
+        try:
+            # Check which repos were seen recently
+            result = await conn.fetch(
+                """
+                SELECT repo_id FROM discovered_repositories
+                WHERE repo_id = ANY($1)
+                AND last_seen_at > NOW() - INTERVAL '%s hours'
+                """ % hours_since_last_seen,
+                repo_ids
+            )
+
+            return {row['repo_id'] for row in result}
+        finally:
+            await self.release_connection(conn)
+
+    async def mark_repositories_discovered(
+        self,
+        repo_ids: list[int],
+        matrix_index: int,
+        crawl_run_id: str
+    ) -> list[int]:
+        """
+        Mark repositories as discovered and return only new ones.
+
+        Args:
+            repo_ids: List of repository IDs to mark
+            matrix_index: Current matrix job index
+            crawl_run_id: Unique identifier for this crawl run
+
+        Returns:
+            List of repository IDs that are new (not seen recently)
+        """
+        if not repo_ids:
+            return []
+
+        # Check which ones we've seen recently (last 24 hours)
+        already_seen = await self.get_already_discovered_repos(repo_ids, hours_since_last_seen=24)
+        new_repo_ids = [repo_id for repo_id in repo_ids if repo_id not in already_seen]
+
+        if not new_repo_ids:
+            self.logger.info(f"🔁 All {len(repo_ids)} repositories already discovered recently")
+            return []
+
+        conn = await self.get_connection()
+        try:
+            # Insert/update discovered repositories
+            await conn.executemany(
+                """
+                INSERT INTO discovered_repositories
+                (repo_id, matrix_index, crawl_run_id, last_seen_at)
+                VALUES ($1, $2, $3, NOW())
+                ON CONFLICT (repo_id) DO UPDATE SET
+                    last_seen_at = NOW(),
+                    discovery_count = discovered_repositories.discovery_count + 1,
+                    matrix_index = $2,
+                    crawl_run_id = $3
+                """,
+                [(repo_id, matrix_index, crawl_run_id) for repo_id in repo_ids]
+            )
+        finally:
+            await self.release_connection(conn)
+
+        duplicate_count = len(repo_ids) - len(new_repo_ids)
+        if duplicate_count > 0:
+            self.logger.info(
+                f"🔁 Filtered {duplicate_count} recently discovered repositories "
+                f"(kept {len(new_repo_ids)} new ones)"
+            )
+
+        return new_repo_ids
+
+    async def get_discovery_stats(self) -> dict:
+        """Get statistics about discovered repositories."""
+        conn = await self.get_connection()
+        try:
+            stats = await conn.fetchrow(
+                """
+                SELECT
+                    COUNT(*) as total_discovered,
+                    COUNT(DISTINCT matrix_index) as matrix_jobs_used,
+                    MIN(first_discovered_at) as first_discovery,
+                    MAX(last_seen_at) as last_discovery,
+                    COUNT(*) FILTER (WHERE last_seen_at > NOW() - INTERVAL '24 hours') as discovered_last_24h,
+                    COUNT(*) FILTER (WHERE discovery_count > 1) as rediscovered_repos
+                FROM discovered_repositories
+                """
+            )
+
+            return {
+                "total_discovered": stats['total_discovered'],
+                "matrix_jobs_used": stats['matrix_jobs_used'],
+                "first_discovery": stats['first_discovery'],
+                "last_discovery": stats['last_discovery'],
+                "discovered_last_24h": stats['discovered_last_24h'],
+                "rediscovered_repos": stats['rediscovered_repos']
+            }
         finally:
             await self.release_connection(conn)
 

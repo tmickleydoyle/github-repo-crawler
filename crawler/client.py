@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import uuid
 from typing import Any
 
 import aiohttp
@@ -283,6 +284,7 @@ class GitHubClient:
         matrix_total: int = 1,
         matrix_index: int = 0,
         target_repos: int | None = None,
+        db_repository=None,
     ) -> CrawlResult:
         """
         Main crawling method using clean architecture principles.
@@ -303,6 +305,7 @@ class GitHubClient:
         repository_ids: set[int] = set()
         total_duplicates_found = 0
         exhausted_queries = []
+        crawl_run_id = str(uuid.uuid4())[:8]  # Short unique ID for this run
 
         search_queries = self.search_strategy.generate_queries(
             matrix_index, matrix_total
@@ -311,6 +314,7 @@ class GitHubClient:
         logger.info(
             f"📋 Processing {len(search_queries)} unique queries for job {matrix_index}"
         )
+        logger.info(f"🆔 Crawl run ID: {crawl_run_id}")
 
         for query_idx, search_query in enumerate(search_queries):
             if len(repositories) >= target_repos:
@@ -325,7 +329,8 @@ class GitHubClient:
 
             try:
                 await self._crawl_query(
-                    search_query, repositories, repository_ids, target_repos
+                    search_query, repositories, repository_ids, target_repos,
+                    matrix_index, crawl_run_id, db_repository
                 )
 
                 repos_added = len(repositories) - repos_before
@@ -385,8 +390,11 @@ class GitHubClient:
         repositories: list[Repository],
         repository_ids: set[int],
         target_repos: int,
+        matrix_index: int,
+        crawl_run_id: str,
+        db_repository=None,
     ) -> None:
-        """Process a single search query with pagination and exhaustion tracking."""
+        """Process a single search query with pagination, exhaustion tracking, and persistence."""
         after_cursor = None
         pages_processed = 0
         max_pages = 10
@@ -397,15 +405,35 @@ class GitHubClient:
             try:
                 result = await self.search_repositories(search_query, after_cursor)
 
-                batch_added = 0
-                for repo in result["repositories"]:
-                    if repo.id not in repository_ids:
-                        repositories.append(repo)
-                        repository_ids.add(repo.id)
-                        batch_added += 1
+                # Check which repos are new using persistence if available
+                repo_ids_from_page = [repo.id for repo in result["repositories"]]
 
-                        if len(repositories) >= target_repos:
-                            break
+                if db_repository:
+                    # Use database persistence to filter out recently discovered repos
+                    new_repo_ids = await db_repository.mark_repositories_discovered(
+                        repo_ids_from_page, matrix_index, crawl_run_id
+                    )
+                    # Only add repos that are both new in this run AND not recently discovered
+                    batch_added = 0
+                    for repo in result["repositories"]:
+                        if repo.id in new_repo_ids and repo.id not in repository_ids:
+                            repositories.append(repo)
+                            repository_ids.add(repo.id)
+                            batch_added += 1
+
+                            if len(repositories) >= target_repos:
+                                break
+                else:
+                    # Fallback to in-memory deduplication only
+                    batch_added = 0
+                    for repo in result["repositories"]:
+                        if repo.id not in repository_ids:
+                            repositories.append(repo)
+                            repository_ids.add(repo.id)
+                            batch_added += 1
+
+                            if len(repositories) >= target_repos:
+                                break
 
                 total_for_query += len(result["repositories"])
 

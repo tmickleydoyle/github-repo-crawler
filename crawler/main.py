@@ -70,21 +70,41 @@ async def run() -> None:
     )
 
     try:
-        async with GitHubClient() as client:
-            if not await client.test_connection():
-                logger.error("GitHub API connection test failed")
-                return
+        # Use centralized database repository (CLAUDE.md: "Centralization")
+        async with DatabaseRepository() as db_repo:
+            await db_repo.initialize_schema()
 
-            crawl_result = await client.crawl(
-                matrix_total=args.matrix_total,
-                matrix_index=args.matrix_index,
-                target_repos=args.repos,
-            )
+            # Show discovery stats from previous runs
+            discovery_stats = await db_repo.get_discovery_stats()
+            if discovery_stats["total_discovered"] > 0:
+                logger.info(
+                    "📊 Previous discovery stats",
+                    total_discovered=discovery_stats["total_discovered"],
+                    discovered_last_24h=discovery_stats["discovered_last_24h"],
+                    rediscovered_count=discovery_stats["rediscovered_repos"]
+                )
 
-            # Use centralized database repository (CLAUDE.md: "Centralization")
-            async with DatabaseRepository() as db_repo:
-                await db_repo.initialize_schema()
+            async with GitHubClient() as client:
+                if not await client.test_connection():
+                    logger.error("GitHub API connection test failed")
+                    return
+
+                crawl_result = await client.crawl(
+                    matrix_total=args.matrix_total,
+                    matrix_index=args.matrix_index,
+                    target_repos=args.repos,
+                    db_repository=db_repo,  # Pass db for persistence
+                )
+
                 await db_repo.store_repositories(crawl_result, args.matrix_index)
+
+                # Show updated discovery stats
+                final_stats = await db_repo.get_discovery_stats()
+                logger.info(
+                    "📈 Final discovery stats",
+                    total_discovered=final_stats["total_discovered"],
+                    new_this_run=final_stats["total_discovered"] - discovery_stats["total_discovered"]
+                )
 
             logger.info(
                 "Crawl completed successfully",
