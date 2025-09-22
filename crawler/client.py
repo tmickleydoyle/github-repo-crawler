@@ -285,7 +285,6 @@ class GitHubClient:
         matrix_index: int = 0,
         target_repos: int | None = None,
         db_repository=None,
-        csv_tracker=None,
     ) -> CrawlResult:
         """
         Main crawling method using clean architecture principles.
@@ -409,41 +408,41 @@ class GitHubClient:
                 # Filter repos using persistence if available
                 repo_ids_from_page = [repo.id for repo in result["repositories"]]
 
-                # Check against CSV tracking for global deduplication
-                known_repo_ids = set()
-                if csv_tracker:
-                    known_repo_ids = csv_tracker.get_known_repository_ids()
-                    logger.debug("CSV tracking loaded",
-                               known_repo_count=len(known_repo_ids),
-                               csv_file=csv_tracker.csv_file_path)
-                else:
-                    logger.debug("CSV tracking disabled - using basic deduplication")
-
-                # Only add repos that are NOT already known and not in this run
-                batch_added = 0
-                new_repos_this_batch = []
-
-                for repo in result["repositories"]:
-                    if repo.id not in known_repo_ids and repo.id not in repository_ids:
-                        repositories.append(repo)
-                        repository_ids.add(repo.id)
-                        new_repos_this_batch.append(repo.id)
-                        batch_added += 1
-
-                        if len(repositories) >= target_repos:
-                            break
-
-                logger.debug("Repository filtering results",
-                           page_repos=len(result["repositories"]),
-                           known_repos=len(known_repo_ids),
-                           already_in_run=len([r for r in result["repositories"] if r.id in repository_ids]),
-                           new_repos_added=batch_added)
-
-                # Legacy support for db_repository (PostgreSQL persistence)
-                if db_repository and new_repos_this_batch:
-                    await db_repository.mark_repositories_discovered(
-                        new_repos_this_batch, matrix_index, crawl_run_id
+                if db_repository:
+                    # Check which repos were already discovered (don't mark them yet!)
+                    already_discovered = await db_repository.get_already_discovered_repos(
+                        repo_ids_from_page, hours_since_last_seen=24
                     )
+
+                    # Only add repos that are NOT already discovered and not in this run
+                    batch_added = 0
+                    new_repos_this_batch = []
+                    for repo in result["repositories"]:
+                        if repo.id not in already_discovered and repo.id not in repository_ids:
+                            repositories.append(repo)
+                            repository_ids.add(repo.id)
+                            new_repos_this_batch.append(repo.id)
+                            batch_added += 1
+
+                            if len(repositories) >= target_repos:
+                                break
+
+                    # Mark these repos as discovered AFTER we've added them to our collection
+                    if new_repos_this_batch:
+                        await db_repository.mark_repositories_discovered(
+                            new_repos_this_batch, matrix_index, crawl_run_id
+                        )
+                else:
+                    # Fallback to in-memory deduplication only
+                    batch_added = 0
+                    for repo in result["repositories"]:
+                        if repo.id not in repository_ids:
+                            repositories.append(repo)
+                            repository_ids.add(repo.id)
+                            batch_added += 1
+
+                            if len(repositories) >= target_repos:
+                                break
 
                 total_for_query += len(result["repositories"])
 

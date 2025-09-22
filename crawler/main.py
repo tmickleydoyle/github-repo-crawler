@@ -6,7 +6,6 @@ import asyncio
 from .client import GitHubClient
 from .config import get_settings
 from .db_repository import DatabaseRepository
-from .csv_tracker import CSVRepositoryTracker
 from .logger import get_logger, setup_logging
 
 
@@ -75,26 +74,11 @@ async def run() -> None:
         async with DatabaseRepository() as db_repo:
             await db_repo.initialize_schema()
 
-            # Initialize CSV repository tracker for global deduplication
-            csv_tracker = CSVRepositoryTracker()
-            run_id = csv_tracker.generate_run_id(args.matrix_total, args.matrix_index)
-
-            # Show CSV tracking stats
-            csv_stats = csv_tracker.get_csv_stats()
-            logger.info(
-                "📊 CSV tracking stats",
-                csv_exists=csv_stats["csv_exists"],
-                total_repositories=csv_stats["total_repositories"],
-                unique_runs=csv_stats["unique_run_ids"],
-                latest_run=csv_stats["latest_run_id"],
-                current_run_id=run_id
-            )
-
-            # Show PostgreSQL discovery stats
+            # Show discovery stats from previous runs
             discovery_stats = await db_repo.get_discovery_stats()
             if discovery_stats["total_discovered"] > 0:
                 logger.info(
-                    "📊 PostgreSQL persistence stats",
+                    "📊 Previous discovery stats",
                     total_discovered=discovery_stats["total_discovered"],
                     discovered_last_24h=discovery_stats["discovered_last_24h"],
                     rediscovered_count=discovery_stats["rediscovered_repos"]
@@ -109,48 +93,16 @@ async def run() -> None:
                     matrix_total=args.matrix_total,
                     matrix_index=args.matrix_index,
                     target_repos=args.repos,
-                    db_repository=db_repo,  # PostgreSQL for local storage
-                    csv_tracker=None,  # Temporarily disable CSV tracking
+                    db_repository=db_repo,  # Pass db for persistence
                 )
 
                 await db_repo.store_repositories(crawl_result, args.matrix_index)
 
-                # Append new repositories to CSV with run tracking
-                if crawl_result.repositories:
-                    repo_data = []
-                    for repo in crawl_result.repositories:
-                        repo_data.append({
-                            'id': repo.id,
-                            'name': repo.name,
-                            'name_with_owner': repo.name_with_owner,
-                            'url': repo.url,
-                            'created_at': repo.created_at,
-                            'stars': repo.stars,
-                            'forks': repo.forks,
-                            'language': repo.language,
-                            'owner': repo.owner,
-                            'license': repo.license,
-                            'pushed_at': repo.pushed_at,
-                            'updated_at': repo.updated_at,
-                        })
-
-                    success = csv_tracker.append_repositories_to_csv(
-                        repo_data, run_id, args.matrix_index
-                    )
-
-                    if success:
-                        logger.info("Successfully appended repositories to CSV",
-                                  count=len(repo_data), run_id=run_id)
-                    else:
-                        logger.error("Failed to append repositories to CSV")
-
-                # Show updated stats
-                final_csv_stats = csv_tracker.get_csv_stats()
+                # Show updated discovery stats
                 final_stats = await db_repo.get_discovery_stats()
                 logger.info(
-                    "📈 Final stats",
-                    csv_total=final_csv_stats["total_repositories"],
-                    postgres_total=final_stats["total_discovered"],
+                    "📈 Final discovery stats",
+                    total_discovered=final_stats["total_discovered"],
                     new_this_run=final_stats["total_discovered"] - discovery_stats["total_discovered"]
                 )
 
