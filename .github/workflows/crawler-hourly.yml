@@ -42,11 +42,11 @@ jobs:
       - name: Generate matrix
         id: set-matrix
         run: |
-          # Use input if manual trigger, otherwise use default of 50 for hourly
+          # Use input if manual trigger, otherwise use default of 120 for hourly
           if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            matrix_size=${{ github.event.inputs.matrix_size || '50' }}
+            matrix_size=${{ github.event.inputs.matrix_size || '120' }}
           else
-            matrix_size=50
+            matrix_size=120
           fi
 
           echo "Generating matrix for $matrix_size jobs"
@@ -117,7 +117,7 @@ jobs:
           export POSTGRES_DB="${{ env.POSTGRES_DB }}"
           export POSTGRES_USER="${{ env.POSTGRES_USER }}"
           export POSTGRES_PASSWORD="${{ env.POSTGRES_PASSWORD }}"
-          export MAX_REPOS="${{ github.event.inputs.max_repos_per_job || '1000' }}"
+          export MAX_REPOS="${{ github.event.inputs.max_repos_per_job || '5000' }}"
 
           python -c "
           import asyncio
@@ -175,7 +175,7 @@ jobs:
           export POSTGRES_DB="${{ env.POSTGRES_DB }}"
           export POSTGRES_USER="${{ env.POSTGRES_USER }}"
           export POSTGRES_PASSWORD="${{ env.POSTGRES_PASSWORD }}"
-          export MAX_REPOS="${{ github.event.inputs.max_repos_per_job || '1000' }}"
+          export MAX_REPOS="${{ github.event.inputs.max_repos_per_job || '5000' }}"
 
           echo "🚀 Starting crawler job ${{ matrix.job_index }} of ${{ needs.generate-matrix.outputs.matrix_size }}"
           echo "🎯 Target: ${MAX_REPOS} repositories"
@@ -567,7 +567,7 @@ jobs:
           echo "📊 Results:"
           echo "- Hour: ${HOUR}"
           echo "- Matrix jobs: ${{ needs.generate-matrix.outputs.matrix_size }}"
-          echo "- Target per job: ${{ github.event.inputs.max_repos_per_job || '1000' }}"
+          echo "- Target per job: ${{ github.event.inputs.max_repos_per_job || '5000' }}"
           echo "- CSV export: github_repositories_final_h${HOUR}.csv"
           echo ""
           if [ -f github_repositories_final_h${HOUR}.csv ]; then
