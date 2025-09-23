@@ -7,7 +7,7 @@ diverse GitHub repositories while respecting API limits.
 
 import hashlib
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 
 from .domain import SearchQuery
@@ -726,7 +726,7 @@ class SimpleSearchStrategy(SearchStrategy):
         - Deterministic language assignment (round-robin)
         - Deterministic topic assignment (hash-based)
         - Hour-specific star ranges (logarithmic distribution)
-        - Date sampling for broader coverage
+        - NO date filtering (to maximize results)
         """
         if matrix_total == 1:
             return [
@@ -751,84 +751,67 @@ class SimpleSearchStrategy(SearchStrategy):
         hour_topics = self._get_topics_for_hour(current_hour)
         hour_star_ranges = self._get_star_ranges_for_hour(current_hour)
 
-        # Generate date samples for broader coverage
-        today = datetime.utcnow().date()
-        date_samples = [
-            today - timedelta(days=d)
-            for d in [
-                0,
-                1,
-                2,
-                3,
-                4,
-                5,
-                6,
-                7,
-                14,
-                21,
-                30,
-                45,
-                60,
-                90,
-                120,
-                150,
-                180,
-                210,
-                240,
-                270,
-                300,
-                330,
-                365,
-            ]
-        ]
-
-        hour_ranges = []
-        for sample_date in date_samples:
-            hour_start = f"{sample_date}T{current_hour:02d}:00:00Z"
-            hour_end = f"{sample_date}T{current_hour:02d}:59:59Z"
-            hour_ranges.append(f"{hour_start}..{hour_end}")
-
         # Build all possible combinations deterministically
         all_combos = []
 
-        # Strategy 1: Language + Stars + Date (primary)
-        combo_index = 0
+        # Strategy 1: Language + Stars (primary - most results)
         for lang in hour_languages:
             for stars in hour_star_ranges:
-                hour_filter = hour_ranges[combo_index % len(hour_ranges)]
                 all_combos.append(
                     {
                         "query": (
-                            f"is:public language:{lang} created:{hour_filter} stars:{stars} "
+                            f"is:public language:{lang} stars:{stars} "
                             f"fork:false archived:false sort:updated"
                         ),
-                        "desc": f"H{current_hour}: {lang}, {stars} stars, {hour_filter[:10]}",
+                        "desc": f"H{current_hour}: {lang}, {stars} stars",
                     }
                 )
-                combo_index += 1
 
-        # Strategy 2: Topic + Stars + Date
+        # Strategy 2: Topic + Stars
         for topic in hour_topics:
-            for stars in hour_star_ranges[:5]:  # Limit star ranges for topics
-                hour_filter = hour_ranges[combo_index % len(hour_ranges)]
+            for stars in hour_star_ranges[:8]:  # More star ranges for topics
                 all_combos.append(
                     {
                         "query": (
-                            f"is:public topic:{topic} created:{hour_filter} stars:{stars} "
+                            f"is:public topic:{topic} stars:{stars} "
                             f"fork:false sort:updated"
                         ),
-                        "desc": f"H{current_hour}: topic:{topic}, {stars} stars, {hour_filter[:10]}",
+                        "desc": f"H{current_hour}: topic:{topic}, {stars} stars",
                     }
                 )
-                combo_index += 1
 
-        # Strategy 3: Broad date + star queries (catch-all)
-        for hour_filter in hour_ranges:
-            for stars in hour_star_ranges[:3]:  # Top 3 star ranges only
+        # Strategy 3: Pure star ranges (catch-all for repos without language/topic)
+        for stars in hour_star_ranges:
+            all_combos.append(
+                {
+                    "query": f"is:public stars:{stars} sort:updated",
+                    "desc": f"H{current_hour}: all langs, {stars} stars",
+                }
+            )
+
+        # Strategy 4: Size-based queries for additional coverage
+        size_ranges = [
+            "0..10",
+            "11..50",
+            "51..100",
+            "101..500",
+            "501..1000",
+            "1001..5000",
+            "5001..10000",
+            ">10000",
+        ]
+
+        # Each hour gets specific size ranges
+        hour_sizes = [
+            s for i, s in enumerate(size_ranges) if (i + current_hour) % 3 == 0
+        ]
+
+        for size in hour_sizes:
+            for stars in hour_star_ranges[:5]:
                 all_combos.append(
                     {
-                        "query": f"is:public created:{hour_filter} stars:{stars} sort:updated",
-                        "desc": f"H{current_hour}: broad, {stars} stars, {hour_filter[:10]}",
+                        "query": f"is:public size:{size} stars:{stars} sort:updated",
+                        "desc": f"H{current_hour}: size:{size}KB, {stars} stars",
                     }
                 )
 
@@ -848,18 +831,18 @@ class SimpleSearchStrategy(SearchStrategy):
 
         # Convert to SearchQuery objects
         queries = []
-        for combo in job_combos[:20]:  # Limit queries per job
+        for combo in job_combos[:30]:  # Increase queries per job for more coverage
             queries.append(
                 SearchQuery(
                     query_string=combo["query"],
                     description=f"Job {matrix_index}: {combo['desc']}",
-                    expected_results=900,
+                    expected_results=1000,  # Expect full 1000 results
                 )
             )
 
-        # Add fallback if too few queries
-        if len(queries) < 5:
-            for i in range(5 - len(queries)):
+        # Add fallback queries if too few
+        if len(queries) < 10:
+            for i in range(10 - len(queries)):
                 star_idx = (matrix_index + i) % len(hour_star_ranges)
                 if star_idx < len(hour_star_ranges):
                     queries.append(
@@ -870,7 +853,7 @@ class SimpleSearchStrategy(SearchStrategy):
                             description=(
                                 f"Job {matrix_index}: Fallback, stars {hour_star_ranges[star_idx]}"
                             ),
-                            expected_results=900,
+                            expected_results=1000,
                         )
                     )
 
