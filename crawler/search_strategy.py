@@ -758,57 +758,49 @@ class SimpleSearchStrategy(SearchStrategy):
         # Build all possible combinations
         all_combos = []
 
-        # Priority 1: Fine-grained language + stars
+        # Get current hour filter for ALL queries
+        current_hour = datetime.utcnow().hour
+        hour_start = f"{datetime.utcnow().strftime('%Y-%m-%d')}T{current_hour:02d}:00:00Z"
+        hour_end = f"{datetime.utcnow().strftime('%Y-%m-%d')}T{current_hour:02d}:59:59Z"
+        hour_filter = f"{hour_start}..{hour_end}"
+
+        # Priority 1: Hour-specific language + stars (primary strategy)
         for lang in languages[:30]:  # Focus on popular languages
             for stars in star_ranges[:20]:  # Focus on lower star ranges
                 all_combos.append(
                     {
                         "query": (
-                            f"is:public language:{lang} stars:{stars} "
+                            f"is:public language:{lang} created:{hour_filter} stars:{stars} "
                             f"fork:false archived:false sort:updated"
                         ),
-                        "desc": f"Lang: {lang}, Stars: {stars}",
+                        "desc": f"Hour {current_hour}: Lang: {lang}, Stars: {stars}",
                     }
                 )
 
-        # Priority 2: Hour-specific time + stars for repos created in current hour
-        hour_specific_ranges = self._get_hour_specific_time_ranges()
-        for time in hour_specific_ranges[:15]:  # Hour-specific time periods
-            for stars in star_ranges[:15]:
-                all_combos.append(
-                    {
-                        "query": (
-                            f"is:public created:{time} stars:{stars} "
-                            f"fork:false sort:updated"
-                        ),
-                        "desc": f"Created: {time}, Stars: {stars}",
-                    }
-                )
-
-        # Priority 3: Size + stars
+        # Priority 2: Hour-specific size + stars
         for size in sizes:
             for stars in star_ranges[:10]:
                 all_combos.append(
                     {
-                        "query": f"is:public size:{size} stars:{stars} sort:updated",
-                        "desc": f"Size: {size}KB, Stars: {stars}",
+                        "query": f"is:public size:{size} created:{hour_filter} stars:{stars} sort:updated",
+                        "desc": f"Hour {current_hour}: Size: {size}KB, Stars: {stars}",
                     }
                 )
 
-        # Priority 4: Topic + stars
+        # Priority 3: Hour-specific topic + stars
         for topic in topics:
             for stars in star_ranges[:10]:
                 all_combos.append(
                     {
                         "query": (
-                            f"is:public topic:{topic} stars:{stars} "
+                            f"is:public topic:{topic} created:{hour_filter} stars:{stars} "
                             f"fork:false sort:updated"
                         ),
-                        "desc": f"Topic: {topic}, Stars: {stars}",
+                        "desc": f"Hour {current_hour}: Topic: {topic}, Stars: {stars}",
                     }
                 )
 
-        # Priority 5: License + language + stars (very specific)
+        # Priority 4: Hour-specific license + language + stars (very specific)
         for license in licenses[:5]:  # Common licenses
             for lang in ["javascript", "python", "java", "typescript", "go"]:
                 for stars in star_ranges[:5]:
@@ -816,9 +808,9 @@ class SimpleSearchStrategy(SearchStrategy):
                         {
                             "query": (
                                 f"is:public license:{license} language:{lang} "
-                                f"stars:{stars} sort:updated"
+                                f"created:{hour_filter} stars:{stars} sort:updated"
                             ),
-                            "desc": f"License: {license}, Lang: {lang}, Stars: {stars}",
+                            "desc": f"Hour {current_hour}: License: {license}, Lang: {lang}, Stars: {stars}",
                         }
                     )
 
