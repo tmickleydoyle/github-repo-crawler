@@ -4,8 +4,7 @@
 import csv
 import os
 import sys
-from collections import defaultdict, Counter
-from datetime import datetime
+from collections import Counter, defaultdict
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
@@ -28,7 +27,7 @@ def analyze_csv_data(csv_file_path: str = "github_repositories_final.csv"):
         tracker = CSVRepositoryTracker(csv_file_path)
         stats = tracker.get_csv_stats()
 
-        print(f"📋 Basic Statistics:")
+        print("📋 Basic Statistics:")
         print(f"  CSV file: {csv_file_path}")
         print(f"  Total repositories: {stats['total_repositories']:,}")
         print(f"  Unique run IDs: {stats['unique_run_ids']}")
@@ -38,7 +37,7 @@ def analyze_csv_data(csv_file_path: str = "github_repositories_final.csv"):
             print(f"  Latest run: {stats['latest_run_id']}")
 
         # Detailed analysis
-        print(f"\n🔍 Detailed Analysis:")
+        print("\n🔍 Detailed Analysis:")
 
         language_count = Counter()
         star_distribution = defaultdict(int)
@@ -48,7 +47,7 @@ def analyze_csv_data(csv_file_path: str = "github_repositories_final.csv"):
         total_stars = 0
         repos_with_stars = 0
 
-        with open(csv_file_path, 'r', newline='', encoding='utf-8') as f:
+        with open(csv_file_path, newline='', encoding='utf-8') as f:
             reader = csv.DictReader(f)
             headers = reader.fieldnames
             print(f"  CSV headers: {', '.join(headers) if headers else 'None'}")
@@ -62,7 +61,7 @@ def analyze_csv_data(csv_file_path: str = "github_repositories_final.csv"):
                 # Repository ID tracking
                 repo_id = None
                 for id_col in ['id', 'repo_id', 'databaseId']:
-                    if id_col in row and row[id_col]:
+                    if row.get(id_col):
                         try:
                             repo_id = int(row[id_col])
                             break
@@ -113,7 +112,7 @@ def analyze_csv_data(csv_file_path: str = "github_repositories_final.csv"):
                     except (ValueError, TypeError):
                         pass
 
-        print(f"\n📈 Repository Statistics:")
+        print("\n📈 Repository Statistics:")
         print(f"  Unique repository IDs: {len(repo_ids):,}")
         if repos_with_stars > 0:
             avg_stars = total_stars / repos_with_stars
@@ -121,25 +120,25 @@ def analyze_csv_data(csv_file_path: str = "github_repositories_final.csv"):
             print(f"  Average stars (repos with stars): {avg_stars:.1f}")
             print(f"  Repositories with stars: {repos_with_stars:,}")
 
-        print(f"\n🌟 Star Distribution:")
+        print("\n🌟 Star Distribution:")
         for bucket, count in sorted(star_distribution.items()):
             percentage = (count / stats['total_repositories'] * 100) if stats['total_repositories'] > 0 else 0
             print(f"  {bucket:<15}: {count:>6,} ({percentage:>5.1f}%)")
 
-        print(f"\n💻 Top 10 Languages:")
+        print("\n💻 Top 10 Languages:")
         for lang, count in language_count.most_common(10):
             percentage = (count / stats['total_repositories'] * 100) if stats['total_repositories'] > 0 else 0
             print(f"  {lang:<15}: {count:>6,} ({percentage:>5.1f}%)")
 
         if run_id_count:
-            print(f"\n🏃 Run Analysis:")
+            print("\n🏃 Run Analysis:")
             print(f"  Total runs: {len(run_id_count)}")
-            print(f"  Repositories per run:")
+            print("  Repositories per run:")
             for run_id, count in sorted(run_id_count.items()):
                 print(f"    {run_id}: {count:,} repositories")
 
         if matrix_index_count:
-            print(f"\n🔢 Matrix Index Distribution:")
+            print("\n🔢 Matrix Index Distribution:")
             matrix_indices = sorted(matrix_index_count.keys())
             print(f"  Matrix indices used: {len(matrix_indices)} (range: {min(matrix_indices)}-{max(matrix_indices)})")
 
@@ -149,27 +148,27 @@ def analyze_csv_data(csv_file_path: str = "github_repositories_final.csv"):
                     count = matrix_index_count[idx]
                     print(f"    Matrix {idx}: {count:,} repositories")
             else:
-                print(f"    (Too many indices to show individually)")
+                print("    (Too many indices to show individually)")
 
         # Data quality checks
-        print(f"\n🔍 Data Quality:")
+        print("\n🔍 Data Quality:")
         duplicates = stats['total_repositories'] - len(repo_ids)
         if duplicates > 0:
             print(f"  ⚠️  Potential duplicates: {duplicates:,} repositories")
         else:
-            print(f"  ✅ No duplicate repository IDs found")
+            print("  ✅ No duplicate repository IDs found")
 
         if not has_run_id:
-            print(f"  ⚠️  No run_id column - cannot track which run repositories came from")
+            print("  ⚠️  No run_id column - cannot track which run repositories came from")
         else:
-            print(f"  ✅ Run tracking available")
+            print("  ✅ Run tracking available")
 
         if not has_matrix_index:
-            print(f"  ⚠️  No matrix_index column - cannot track which matrix job found repositories")
+            print("  ⚠️  No matrix_index column - cannot track which matrix job found repositories")
         else:
-            print(f"  ✅ Matrix job tracking available")
+            print("  ✅ Matrix job tracking available")
 
-        print(f"\n✅ Analysis complete!")
+        print("\n✅ Analysis complete!")
 
     except Exception as e:
         print(f"❌ Error analyzing CSV: {e}")

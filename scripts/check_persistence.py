@@ -24,7 +24,7 @@ async def main():
                 print("   Run the crawler to start building persistence data")
                 return
 
-            print(f"\n📊 Discovery Statistics:")
+            print("\n📊 Discovery Statistics:")
             print(f"   • Total repositories discovered: {stats['total_discovered']:,}")
             print(f"   • Discovered in last 24 hours: {stats['discovered_last_24h']:,}")
             print(f"   • Repositories found multiple times: {stats['rediscovered_repos']:,}")
@@ -40,7 +40,7 @@ async def main():
                 rediscovery_rate = (stats['rediscovered_repos'] / stats['total_discovered']) * 100
                 recent_rate = (stats['discovered_last_24h'] / stats['total_discovered']) * 100
 
-                print(f"\n🎯 Persistence Effectiveness:")
+                print("\n🎯 Persistence Effectiveness:")
                 print(f"   • Rediscovery rate: {rediscovery_rate:.1f}%")
                 print(f"   • Recent activity: {recent_rate:.1f}%")
 
@@ -51,17 +51,17 @@ async def main():
                 else:
                     print("   ❌ High - Many repositories being rediscovered (check configuration)")
 
-            print(f"\n💡 For Hourly GitHub Actions:")
-            print(f"   • Repositories discovered in last 24h will be skipped")
-            print(f"   • Each run will only collect truly new repositories")
-            print(f"   • Database automatically tracks discovery timestamps")
-            print(f"   • Zero wasted API calls on already-crawled repositories")
+            print("\n💡 For Hourly GitHub Actions:")
+            print("   • Repositories discovered in last 24h will be skipped")
+            print("   • Each run will only collect truly new repositories")
+            print("   • Database automatically tracks discovery timestamps")
+            print("   • Zero wasted API calls on already-crawled repositories")
 
             if stats['discovered_last_24h'] > 1000:
-                print(f"\n🚀 Ready for Production:")
+                print("\n🚀 Ready for Production:")
                 print(f"   • {stats['discovered_last_24h']:,} repos discovered recently")
-                print(f"   • Persistence is working effectively")
-                print(f"   • Safe to run hourly without duplicating work")
+                print("   • Persistence is working effectively")
+                print("   • Safe to run hourly without duplicating work")
 
     except Exception as e:
         print(f"\n❌ Error checking persistence: {e}")

@@ -25,7 +25,7 @@ def get_supabase_info():
         # Parse the URL to validate and show details
         try:
             parsed = urlparse(connection_url)
-            print(f"✅ Parsed connection:")
+            print("✅ Parsed connection:")
             print(f"   Host: {parsed.hostname}")
             print(f"   Database: {parsed.path[1:] if parsed.path else 'N/A'}")
             print(f"   User: {parsed.username}")
@@ -67,7 +67,7 @@ def create_env_file(config):
     # Read existing .env if it exists
     existing_env = {}
     if os.path.exists(env_path):
-        with open(env_path, 'r') as f:
+        with open(env_path) as f:
             for line in f:
                 line = line.strip()
                 if line and '=' in line and not line.startswith('#'):

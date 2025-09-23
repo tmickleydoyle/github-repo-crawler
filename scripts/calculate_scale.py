@@ -36,7 +36,7 @@ def main():
         if queries_needed > stats["total_combinations"]:
             deficit = queries_needed - stats["total_combinations"]
             print(f"    ⚠️  Need {deficit:,} more query combinations")
-            print(f"        Consider: Adding more granular star ranges or time periods")
+            print("        Consider: Adding more granular star ranges or time periods")
 
     print("\n💡 Current Configuration:")
     print(f"  • Available combinations: {stats['total_combinations']:,}")

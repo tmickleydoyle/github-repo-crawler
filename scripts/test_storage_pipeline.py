@@ -13,7 +13,6 @@ if not os.environ.get("DATABASE_URL"):
 
 from crawler.client import GitHubClient
 from crawler.db_repository import DatabaseRepository
-from crawler.domain import SearchQuery
 
 
 async def test_storage_pipeline():
@@ -81,7 +80,7 @@ async def test_storage_pipeline():
                         repo_increase = final_repo_count - initial_repo_count
                         discovered_increase = final_discovered_count - initial_discovered_count
 
-                        print(f"\n📈 Final counts:")
+                        print("\n📈 Final counts:")
                         print(f"  repo table: {initial_repo_count} → {final_repo_count} (+{repo_increase})")
                         print(f"  discovered table: {initial_discovered_count} → {final_discovered_count} (+{discovered_increase})")
 

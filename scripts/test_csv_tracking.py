@@ -3,7 +3,6 @@
 
 import os
 import sys
-from datetime import datetime
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
@@ -143,7 +142,7 @@ def test_csv_tracking():
         success = tracker.append_repositories_to_csv(second_batch, second_run_id, 5)
 
         if success:
-            print(f"  ✅ Successfully added repositories to second run")
+            print("  ✅ Successfully added repositories to second run")
             print(f"  Second run ID: {second_run_id}")
         else:
             print("  ❌ Failed to add repositories to second run")
@@ -157,7 +156,7 @@ def test_csv_tracking():
 
         # Check CSV file contents
         if os.path.exists(test_csv_file):
-            with open(test_csv_file, 'r') as f:
+            with open(test_csv_file) as f:
                 lines = f.readlines()
                 print(f"  CSV file has {len(lines)} lines (including header)")
                 print(f"  Header: {lines[0].strip()}")

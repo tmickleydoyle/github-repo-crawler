@@ -760,7 +760,9 @@ class SimpleSearchStrategy(SearchStrategy):
 
         # Get current hour filter for ALL queries
         current_hour = datetime.utcnow().hour
-        hour_start = f"{datetime.utcnow().strftime('%Y-%m-%d')}T{current_hour:02d}:00:00Z"
+        hour_start = (
+            f"{datetime.utcnow().strftime('%Y-%m-%d')}T{current_hour:02d}:00:00Z"
+        )
         hour_end = f"{datetime.utcnow().strftime('%Y-%m-%d')}T{current_hour:02d}:59:59Z"
         hour_filter = f"{hour_start}..{hour_end}"
 
