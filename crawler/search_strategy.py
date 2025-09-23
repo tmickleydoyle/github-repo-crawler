@@ -699,9 +699,6 @@ class SimpleSearchStrategy(SearchStrategy):
             ">50000",
         ]
 
-        # Use hour-specific time ranges based on current time
-        time_ranges = self._get_hour_specific_time_ranges()
-
         sizes = [
             "<5",
             "5..15",
@@ -774,8 +771,9 @@ class SimpleSearchStrategy(SearchStrategy):
                     }
                 )
 
-        # Priority 2: Time + stars for recent repos
-        for time in time_ranges[:15]:  # Recent time periods
+        # Priority 2: Hour-specific time + stars for repos created in current hour
+        hour_specific_ranges = self._get_hour_specific_time_ranges()
+        for time in hour_specific_ranges[:15]:  # Hour-specific time periods
             for stars in star_ranges[:15]:
                 all_combos.append(
                     {
