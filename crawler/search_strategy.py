@@ -710,17 +710,6 @@ class SimpleSearchStrategy(SearchStrategy):
             ">5000",
         ]
 
-        licenses = [
-            "mit",
-            "apache-2.0",
-            "gpl-3.0",
-            "bsd-2-clause",
-            "bsd-3-clause",
-            "isc",
-            "unlicense",
-            "lgpl-2.1",
-        ]
-
         topics = [
             "api",
             "cli",
