@@ -1,0 +1,7 @@
+id,name,name_with_owner,url,created_at,stars,crawled_at
+1,test-repo-1,test-user-1/test-repo-1,https://github.com/test-user-1/test-repo-1,,100,2025-09-22T19:47:53.205195Z
+2,test-repo-2,test-user-2/test-repo-2,https://github.com/test-user-2/test-repo-2,,50,2025-09-22T19:47:53.205195Z
+1,test-repo-1,test-user-1/test-repo-1,https://github.com/test-user-1/test-repo-1,,100,2025-09-22T19:48:30.506698Z
+2,test-repo-2,test-user-2/test-repo-2,https://github.com/test-user-2/test-repo-2,,50,2025-09-22T19:48:30.506698Z
+1,test-repo-1,test-user-1/test-repo-1,https://github.com/test-user-1/test-repo-1,,100,2025-09-22T19:48:53.224418Z
+2,test-repo-2,test-user-2/test-repo-2,https://github.com/test-user-2/test-repo-2,,50,2025-09-22T19:48:53.224418Z

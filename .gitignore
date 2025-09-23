@@ -202,11 +202,19 @@ pg_data/
 
 # Data files and outputs
 data/
-database_exports/
-*.csv
 *.json
 *.tar.gz
 *.zip
+
+# Database exports - include only final hourly files (not matrix files)
+database_exports/*
+!database_exports/github_repositories_final_h[0-9].csv
+!database_exports/github_repositories_final_h[0-9][0-9].csv
+
+# Exclude all other CSV files (including matrix files)
+*.csv
+!database_exports/github_repositories_final_h[0-9].csv
+!database_exports/github_repositories_final_h[0-9][0-9].csv
 
 # Log files
 *.log

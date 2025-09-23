@@ -33,6 +33,11 @@ def parse_args() -> argparse.Namespace:
         default=0,
         help="Current matrix job index (0-based)",
     )
+    p.add_argument(
+        "--consolidate-only",
+        action="store_true",
+        help="Only perform consolidation of matrix job results (no crawling)",
+    )
     return p.parse_args()
 
 
@@ -65,6 +70,15 @@ async def run() -> None:
         matrix_total=args.matrix_total,
     )
 
+    # Check if this is a consolidation-only run
+    if args.consolidate_only:
+        logger.info(
+            "Starting matrix job consolidation",
+            matrix_total=args.matrix_total,
+        )
+        await run_consolidation(args, logger)
+        return
+
     logger.info(
         "Starting GitHub crawler",
         target_repos=args.repos,
@@ -96,8 +110,8 @@ async def run_with_database(db_repo: Any, args: Any, logger: Any) -> None:
     """Run crawler with database persistence."""
     await db_repo.initialize_schema()
 
-    # Create CSV deduplicator for additional filtering
-    csv_deduplicator = CSVDeduplicator()
+    # Create CSV deduplicator for additional filtering (matrix-specific file)
+    csv_deduplicator = CSVDeduplicator(matrix_index=args.matrix_index)
     csv_stats = csv_deduplicator.get_stats()
     logger.info(
         "CSV deduplication initialized",
@@ -155,8 +169,8 @@ async def run_without_database(args: Any, logger: Any) -> None:
     """Run crawler without database persistence (fallback mode)."""
     logger.info("Running in fallback mode without database persistence")
 
-    # Create CSV deduplicator for cross-run filtering
-    csv_deduplicator = CSVDeduplicator()
+    # Create CSV deduplicator for cross-run filtering (matrix-specific file)
+    csv_deduplicator = CSVDeduplicator(matrix_index=args.matrix_index)
     csv_stats = csv_deduplicator.get_stats()
     logger.info(
         "CSV deduplication initialized",
@@ -187,6 +201,25 @@ async def run_without_database(args: Any, logger: Any) -> None:
             "Crawl completed successfully (CSV persistence)",
             repositories_count=len(crawl_result.repositories),
         )
+
+
+async def run_consolidation(args: Any, logger: Any) -> None:
+    """Run consolidation of matrix job results into single hour file."""
+    from .csv_deduplication import CSVDeduplicator
+
+    success = CSVDeduplicator.consolidate_matrix_results(matrix_total=args.matrix_total)
+
+    if success:
+        logger.info(
+            "Matrix job consolidation completed successfully",
+            matrix_total=args.matrix_total,
+        )
+    else:
+        logger.error(
+            "Matrix job consolidation failed",
+            matrix_total=args.matrix_total,
+        )
+        raise RuntimeError("Consolidation failed")
 
 
 def main() -> None:

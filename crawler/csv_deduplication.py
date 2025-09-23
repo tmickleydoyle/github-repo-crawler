@@ -15,12 +15,14 @@ class CSVDeduplicator:
         self,
         csv_file_path: str = "database_exports/github_repositories_final.csv",
         hour_suffix: bool = True,
+        matrix_index: int | None = None,
     ):
         """Initialize the CSV deduplicator.
 
         Args:
             csv_file_path: Path to CSV file with previously scraped repositories
             hour_suffix: If True, append current hour to filename (e.g., _h18)
+            matrix_index: If provided, append matrix index for individual job files
         """
         if hour_suffix:
             from datetime import datetime
@@ -30,9 +32,21 @@ class CSVDeduplicator:
             # Insert hour suffix before file extension
             if csv_file_path.endswith(".csv"):
                 base_path = csv_file_path[:-4]
-                self.csv_file_path = f"{base_path}_h{current_hour}.csv"
+                if matrix_index is not None:
+                    # Individual matrix job file (e.g., _h18_matrix0.csv)
+                    self.csv_file_path = (
+                        f"{base_path}_h{current_hour}_matrix{matrix_index}.csv"
+                    )
+                else:
+                    # Final consolidated hour file (e.g., _h18.csv)
+                    self.csv_file_path = f"{base_path}_h{current_hour}.csv"
             else:
-                self.csv_file_path = f"{csv_file_path}_h{current_hour}"
+                if matrix_index is not None:
+                    self.csv_file_path = (
+                        f"{csv_file_path}_h{current_hour}_matrix{matrix_index}"
+                    )
+                else:
+                    self.csv_file_path = f"{csv_file_path}_h{current_hour}"
         else:
             self.csv_file_path = csv_file_path
         self.logger = get_logger(__name__)
@@ -292,3 +306,125 @@ class CSVDeduplicator:
         stats["hourly_files"] = files_found
 
         return stats
+
+    @staticmethod
+    def consolidate_matrix_results(
+        matrix_total: int, current_hour: int | None = None
+    ) -> bool:
+        """Consolidate all matrix job CSV files into a single hour file.
+
+        This method merges individual matrix job CSV files (e.g., _h18_matrix0.csv,
+        _h18_matrix1.csv) into a single consolidated hour file (_h18.csv).
+
+        Args:
+            matrix_total: Total number of matrix jobs to consolidate
+            current_hour: Hour to consolidate (defaults to current UTC hour)
+
+        Returns:
+            True if consolidation successful, False otherwise
+        """
+        logger = get_logger(__name__)
+
+        if current_hour is None:
+            current_hour = datetime.utcnow().hour
+
+        csv_dir = "database_exports"
+        base_name = "github_repositories_final"
+        final_file = os.path.join(csv_dir, f"{base_name}_h{current_hour}.csv")
+
+        # Find all matrix job files for this hour
+        matrix_files = []
+        for matrix_index in range(matrix_total):
+            matrix_file = os.path.join(
+                csv_dir, f"{base_name}_h{current_hour}_matrix{matrix_index}.csv"
+            )
+            if os.path.exists(matrix_file):
+                matrix_files.append(matrix_file)
+
+        if not matrix_files:
+            logger.warning(
+                "No matrix job files found for consolidation",
+                hour=current_hour,
+                expected_files=matrix_total,
+            )
+            return False
+
+        try:
+            # Ensure output directory exists
+            os.makedirs(csv_dir, exist_ok=True)
+
+            # Consolidate all matrix files into final file
+            total_repos = 0
+            seen_repo_ids = set()
+
+            with open(final_file, "w", newline="", encoding="utf-8") as output_file:
+                fieldnames = [
+                    "id",
+                    "name",
+                    "name_with_owner",
+                    "url",
+                    "created_at",
+                    "stars",
+                    "crawled_at",
+                ]
+                writer = csv.DictWriter(output_file, fieldnames=fieldnames)
+                writer.writeheader()
+
+                for matrix_file in matrix_files:
+                    logger.debug(f"Processing matrix file: {matrix_file}")
+
+                    try:
+                        with open(
+                            matrix_file, "r", newline="", encoding="utf-8"
+                        ) as input_file:
+                            reader = csv.DictReader(input_file)
+                            file_repo_count = 0
+
+                            for row in reader:
+                                repo_id = row.get("id")
+                                if repo_id and repo_id not in seen_repo_ids:
+                                    try:
+                                        # Validate repo_id is numeric
+                                        int(repo_id)
+                                        writer.writerow(row)
+                                        seen_repo_ids.add(repo_id)
+                                        file_repo_count += 1
+                                        total_repos += 1
+                                    except (ValueError, TypeError):
+                                        logger.warning(f"Invalid repo ID: {repo_id}")
+                                        continue
+
+                            logger.debug(
+                                f"Processed {file_repo_count} repos from {matrix_file}"
+                            )
+
+                    except Exception as e:
+                        logger.error(
+                            f"Failed to process matrix file {matrix_file}", error=str(e)
+                        )
+
+            # Clean up individual matrix files after successful consolidation
+            for matrix_file in matrix_files:
+                try:
+                    os.remove(matrix_file)
+                    logger.debug(f"Removed matrix file: {matrix_file}")
+                except Exception as e:
+                    logger.warning(f"Failed to remove {matrix_file}", error=str(e))
+
+            logger.info(
+                "Successfully consolidated matrix job results",
+                hour=current_hour,
+                matrix_files_processed=len(matrix_files),
+                total_repositories=total_repos,
+                final_file=final_file,
+            )
+
+            return True
+
+        except Exception as e:
+            logger.error(
+                "Failed to consolidate matrix job results",
+                hour=current_hour,
+                error=str(e),
+            )
+            return False
