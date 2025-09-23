@@ -6,7 +6,7 @@ diverse GitHub repositories while respecting API limits.
 """
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from .domain import SearchQuery
@@ -758,63 +758,77 @@ class SimpleSearchStrategy(SearchStrategy):
         # Build all possible combinations
         all_combos = []
 
-        # Get current hour filter for ALL queries
+        # Get current hour and generate hour-specific date ranges across multiple days
         current_hour = datetime.utcnow().hour
-        hour_start = (
-            f"{datetime.utcnow().strftime('%Y-%m-%d')}T{current_hour:02d}:00:00Z"
-        )
-        hour_end = f"{datetime.utcnow().strftime('%Y-%m-%d')}T{current_hour:02d}:59:59Z"
-        hour_filter = f"{hour_start}..{hour_end}"
+
+        # Generate hour-specific date ranges for the past several months
+        hour_ranges = []
+        today = datetime.utcnow().date()
+
+        # Go back up to 365 days, sampling different days
+        date_samples = [
+            today - timedelta(days=d)
+            for d in [0, 1, 2, 3, 4, 5, 6, 7, 14, 21, 30, 45, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 365]
+        ]
+
+        for sample_date in date_samples:
+            hour_start = f"{sample_date}T{current_hour:02d}:00:00Z"
+            hour_end = f"{sample_date}T{current_hour:02d}:59:59Z"
+            hour_ranges.append(f"{hour_start}..{hour_end}")
 
         # Priority 1: Hour-specific language + stars (primary strategy)
-        for lang in languages[:30]:  # Focus on popular languages
-            for stars in star_ranges[:20]:  # Focus on lower star ranges
+        # Rotate through different date ranges for variety
+        combo_index = 0
+        for lang in languages[:20]:  # Reduced to compensate for multiple date ranges
+            for stars in star_ranges[:10]:  # Reduced star ranges
+                hour_filter = hour_ranges[combo_index % len(hour_ranges)]
                 all_combos.append(
                     {
                         "query": (
                             f"is:public language:{lang} created:{hour_filter} stars:{stars} "
                             f"fork:false archived:false sort:updated"
                         ),
-                        "desc": f"Hour {current_hour}: Lang: {lang}, Stars: {stars}",
+                        "desc": f"Hour {current_hour}: Lang: {lang}, Stars: {stars}, Date: {hour_filter[:10]}",
                     }
                 )
+                combo_index += 1
 
-        # Priority 2: Hour-specific size + stars
+        # Priority 2: Hour-specific size + stars across different dates
         for size in sizes:
-            for stars in star_ranges[:10]:
+            for stars in star_ranges[:5]:
+                hour_filter = hour_ranges[combo_index % len(hour_ranges)]
                 all_combos.append(
                     {
                         "query": f"is:public size:{size} created:{hour_filter} stars:{stars} sort:updated",
-                        "desc": f"Hour {current_hour}: Size: {size}KB, Stars: {stars}",
+                        "desc": f"Hour {current_hour}: Size: {size}KB, Stars: {stars}, Date: {hour_filter[:10]}",
                     }
                 )
+                combo_index += 1
 
-        # Priority 3: Hour-specific topic + stars
-        for topic in topics:
-            for stars in star_ranges[:10]:
+        # Priority 3: Hour-specific topic + stars across different dates
+        for topic in topics[:15]:  # Reduced topics
+            for stars in star_ranges[:5]:
+                hour_filter = hour_ranges[combo_index % len(hour_ranges)]
                 all_combos.append(
                     {
                         "query": (
                             f"is:public topic:{topic} created:{hour_filter} stars:{stars} "
                             f"fork:false sort:updated"
                         ),
-                        "desc": f"Hour {current_hour}: Topic: {topic}, Stars: {stars}",
+                        "desc": f"Hour {current_hour}: Topic: {topic}, Stars: {stars}, Date: {hour_filter[:10]}",
                     }
                 )
+                combo_index += 1
 
-        # Priority 4: Hour-specific license + language + stars (very specific)
-        for license in licenses[:5]:  # Common licenses
-            for lang in ["javascript", "python", "java", "typescript", "go"]:
-                for stars in star_ranges[:5]:
-                    all_combos.append(
-                        {
-                            "query": (
-                                f"is:public license:{license} language:{lang} "
-                                f"created:{hour_filter} stars:{stars} sort:updated"
-                            ),
-                            "desc": f"Hour {current_hour}: License: {license}, Lang: {lang}, Stars: {stars}",
-                        }
-                    )
+        # Priority 4: Hour-specific broad queries for different dates
+        for hour_filter in hour_ranges:
+            for stars in star_ranges[:10]:
+                all_combos.append(
+                    {
+                        "query": f"is:public created:{hour_filter} stars:{stars} sort:updated",
+                        "desc": f"Hour {current_hour}: All repos, Stars: {stars}, Date: {hour_filter[:10]}",
+                    }
+                )
 
         # Calculate unique slice for this job
         total = len(all_combos)
