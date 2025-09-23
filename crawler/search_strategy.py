@@ -7,7 +7,7 @@ diverse GitHub repositories while respecting API limits.
 
 import hashlib
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from .domain import SearchQuery
@@ -720,141 +720,186 @@ class SimpleSearchStrategy(SearchStrategy):
     def generate_queries(
         self, matrix_index: int = 0, matrix_total: int = 1
     ) -> list[SearchQuery]:
-        """Generate deterministic, hour-partitioned search queries.
+        """Generate high-volume search queries for 10M repos/day target.
 
-        Each hour gets unique queries using:
-        - Deterministic language assignment (round-robin)
-        - Deterministic topic assignment (hash-based)
-        - Hour-specific star ranges (logarithmic distribution)
-        - NO date filtering (to maximize results)
+        Strategy for maximum coverage:
+        - Use 'pushed' date ranges to get recently active repos
+        - Each hour gets different date offset to ensure uniqueness
+        - Broad star ranges that return 1000 results each
+        - Minimize restrictive filters
         """
         if matrix_total == 1:
-            return [
-                SearchQuery(
-                    "is:public stars:0..2 sort:updated", "Very low stars, recent", 1000
-                ),
-                SearchQuery("is:public stars:3..8 sort:stars", "Low stars", 1000),
-                SearchQuery(
-                    "is:public stars:9..25 sort:updated", "Medium-low stars", 1000
-                ),
-                SearchQuery("is:public stars:26..80 sort:stars", "Medium stars", 1000),
-                SearchQuery(
-                    "is:public stars:81..300 sort:updated", "Higher stars", 1000
-                ),
-            ]
+            # Generate diverse queries even for single matrix job
+            current_hour = datetime.utcnow().hour
+            current_day_of_year = datetime.utcnow().timetuple().tm_yday
+            base_offset = (current_day_of_year * 24 + current_hour) * 30
 
-        # Get current hour for deterministic partitioning
+            queries = []
+            for day_offset in range(base_offset, base_offset + 10):
+                target_date = datetime.utcnow() - timedelta(days=day_offset)
+                date_str = target_date.strftime("%Y-%m-%d")
+                star_buckets = [
+                    "0..10",
+                    "11..50",
+                    "51..100",
+                    "101..500",
+                    "501..1000",
+                    "1001..5000",
+                    ">5000",
+                ]
+                for stars in star_buckets:
+                    queries.append(
+                        SearchQuery(
+                            f"is:public pushed:{date_str} stars:{stars} sort:updated",
+                            f"Pushed {date_str}, stars:{stars}",
+                            1000,
+                        )
+                    )
+            return queries
+
+        # Get current hour and day for deterministic partitioning
         current_hour = datetime.utcnow().hour
+        current_day_of_year = datetime.utcnow().timetuple().tm_yday
 
-        # Get hour-specific partitions using helper methods
-        hour_languages = self._get_languages_for_hour(current_hour)
-        hour_topics = self._get_topics_for_hour(current_hour)
-        hour_star_ranges = self._get_star_ranges_for_hour(current_hour)
+        # CRITICAL: Ensure uniqueness across both hours AND days
+        # Use day-of-year to shift the date window so each day queries different dates
+        # This prevents Hour 0 today from overlapping with Hour 0 tomorrow
+        base_offset = (
+            current_day_of_year * 24 + current_hour
+        ) * 30  # Unique offset per hour per day
 
-        # Build all possible combinations deterministically
         all_combos = []
 
-        # Strategy 1: Language + Stars (primary - most results)
-        for lang in hour_languages:
-            for stars in hour_star_ranges:
+        # Strategy 1: Pushed date ranges (most effective for getting different repos each hour)
+        # Each job gets a different day offset to query
+        days_per_job = max(1, 720 // matrix_total)  # Spread across 2 years of data
+        job_day_offset = base_offset + (matrix_index * days_per_job)
+
+        # Generate pushed date queries for this job's time window
+        for day_offset in range(job_day_offset, job_day_offset + days_per_job, 1):
+            # Create date range for repos pushed in a specific day
+            target_date = datetime.utcnow() - timedelta(days=day_offset)
+            date_str = target_date.strftime("%Y-%m-%d")
+
+            # Query repos pushed on this specific date with different star ranges
+            star_buckets = [
+                "0..10",
+                "11..50",
+                "51..100",
+                "101..500",
+                "501..1000",
+                "1001..5000",
+                ">5000",
+            ]
+
+            for stars in star_buckets:
                 all_combos.append(
                     {
-                        "query": (
-                            f"is:public language:{lang} stars:{stars} "
-                            f"fork:false archived:false sort:updated"
-                        ),
-                        "desc": f"H{current_hour}: {lang}, {stars} stars",
+                        "query": f"is:public pushed:{date_str} stars:{stars} sort:updated",
+                        "desc": f"Pushed {date_str}, stars:{stars}",
                     }
                 )
 
-        # Strategy 2: Topic + Stars
-        for topic in hour_topics:
-            for stars in hour_star_ranges[:8]:  # More star ranges for topics
-                all_combos.append(
-                    {
-                        "query": (
-                            f"is:public topic:{topic} stars:{stars} "
-                            f"fork:false sort:updated"
-                        ),
-                        "desc": f"H{current_hour}: topic:{topic}, {stars} stars",
-                    }
-                )
+        # Strategy 2: Language-based queries without date filters
+        # Top languages that have millions of repos
+        top_languages = [
+            "javascript",
+            "python",
+            "java",
+            "html",
+            "typescript",
+            "css",
+            "c++",
+            "php",
+            "c#",
+            "ruby",
+            "go",
+            "c",
+            "shell",
+            "jupyter notebook",
+            "swift",
+            "kotlin",
+        ]
 
-        # Strategy 3: Pure star ranges (catch-all for repos without language/topic)
-        for stars in hour_star_ranges:
-            all_combos.append(
-                {
-                    "query": f"is:public stars:{stars} sort:updated",
-                    "desc": f"H{current_hour}: all langs, {stars} stars",
-                }
+        # Each job gets different languages
+        langs_per_job = max(1, len(top_languages) // min(matrix_total, 20))
+        job_langs = top_languages[
+            (matrix_index * langs_per_job) % len(top_languages) : (
+                (matrix_index + 1) * langs_per_job
             )
-
-        # Strategy 4: Size-based queries for additional coverage
-        size_ranges = [
-            "0..10",
-            "11..50",
-            "51..100",
-            "101..500",
-            "501..1000",
-            "1001..5000",
-            "5001..10000",
-            ">10000",
+            % len(top_languages)
         ]
 
-        # Each hour gets specific size ranges
-        hour_sizes = [
-            s for i, s in enumerate(size_ranges) if (i + current_hour) % 3 == 0
+        for lang in job_langs:
+            # Broad star ranges for maximum results
+            for stars in ["0..5", "6..20", "21..100", "101..1000", ">1000"]:
+                all_combos.append(
+                    {
+                        "query": f'is:public language:"{lang}" stars:{stars} sort:updated',
+                        "desc": f"Lang:{lang}, stars:{stars}",
+                    }
+                )
+
+        # Strategy 3: Size-based queries for repos without language detection
+        size_buckets = [
+            "0..100",  # Very small repos
+            "100..500",  # Small
+            "500..1000",  # Medium
+            "1000..5000",  # Large
+            "5000..50000",  # Very large
+            ">50000",  # Huge
         ]
 
-        for size in hour_sizes:
-            for stars in hour_star_ranges[:5]:
+        # Distribute size ranges across jobs
+        size_idx = matrix_index % len(size_buckets)
+        job_sizes = (
+            size_buckets[size_idx : size_idx + 2]
+            if size_idx < len(size_buckets) - 1
+            else [size_buckets[size_idx]]
+        )
+
+        for size in job_sizes:
+            for stars in ["0..10", "11..100", ">100"]:
                 all_combos.append(
                     {
                         "query": f"is:public size:{size} stars:{stars} sort:updated",
-                        "desc": f"H{current_hour}: size:{size}KB, {stars} stars",
+                        "desc": f"Size:{size}KB, stars:{stars}",
                     }
                 )
 
-        # Partition combinations across matrix jobs
-        total = len(all_combos)
-        per_job = max(1, total // matrix_total)
-        remainder = total % matrix_total
-
-        if matrix_index < remainder:
-            start = matrix_index * (per_job + 1)
-            end = start + per_job + 1
-        else:
-            start = matrix_index * per_job + remainder
-            end = start + per_job
-
-        job_combos = all_combos[start:end]
-
-        # Convert to SearchQuery objects
+        # Convert to SearchQuery objects - take as many as possible
         queries = []
-        for combo in job_combos[:30]:  # Increase queries per job for more coverage
+        for combo in all_combos[:50]:  # Increase to 50 queries per job
             queries.append(
                 SearchQuery(
                     query_string=combo["query"],
-                    description=f"Job {matrix_index}: {combo['desc']}",
-                    expected_results=1000,  # Expect full 1000 results
+                    description=f"Job {matrix_index}/{matrix_total}: {combo['desc']}",
+                    expected_results=1000,
                 )
             )
 
-        # Add fallback queries if too few
-        if len(queries) < 10:
-            for i in range(10 - len(queries)):
-                star_idx = (matrix_index + i) % len(hour_star_ranges)
-                if star_idx < len(hour_star_ranges):
-                    queries.append(
-                        SearchQuery(
-                            query_string=(
-                                f"is:public stars:{hour_star_ranges[star_idx]} sort:updated"
-                            ),
-                            description=(
-                                f"Job {matrix_index}: Fallback, stars {hour_star_ranges[star_idx]}"
-                            ),
-                            expected_results=1000,
-                        )
+        # If we have very few queries, add broad catch-all queries
+        if len(queries) < 20:
+            # Add more broad queries that will definitely return 1000 results
+            broad_queries = [
+                "is:public stars:0..5",
+                "is:public stars:6..10",
+                "is:public stars:11..20",
+                "is:public stars:21..50",
+                "is:public stars:51..100",
+                "is:public fork:true stars:0..10",
+                "is:public archived:true",
+            ]
+
+            for q in broad_queries:
+                if len(queries) >= 50:
+                    break
+                queries.append(
+                    SearchQuery(
+                        query_string=f"{q} sort:updated",
+                        description=f"Job {matrix_index}: Broad - {q}",
+                        expected_results=1000,
                     )
+                )
 
         return queries

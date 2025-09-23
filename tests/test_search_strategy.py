@@ -60,19 +60,19 @@ class TestSimpleSearchStrategy:
         """Test that matrix partitioning covers different search spaces."""
         strategy = SimpleSearchStrategy()
 
-        all_languages = set()
+        all_pushed_dates = set()
         all_star_ranges = set()
 
         for i in range(10):
             queries = strategy.generate_queries(matrix_index=i, matrix_total=10)
 
             for query in queries:
-                if "language:" in query.query_string:
+                if "pushed:" in query.query_string:
                     parts = query.query_string.split()
                     for part in parts:
-                        if part.startswith("language:"):
-                            lang = part.split(":")[1]
-                            all_languages.add(lang)
+                        if part.startswith("pushed:"):
+                            date = part.split(":")[1]
+                            all_pushed_dates.add(date)
 
                 if "stars:" in query.query_string:
                     parts = query.query_string.split()
@@ -81,7 +81,7 @@ class TestSimpleSearchStrategy:
                             star_range = part.split(":")[1]
                             all_star_ranges.add(star_range)
 
-        assert len(all_languages) > 1
+        assert len(all_pushed_dates) > 1
         assert len(all_star_ranges) >= 1
 
     def test_query_string_validity(self):
@@ -135,8 +135,7 @@ class TestSimpleSearchStrategy:
 
         assert len(set(query_strings)) > 1
 
-        has_language_filter = any("language:" in q for q in query_strings)
+        has_pushed_filter = any("pushed:" in q for q in query_strings)
         has_star_filter = any("stars:" in q for q in query_strings)
-        has_date_filter = any("created:" in q for q in query_strings)
 
-        assert has_language_filter or has_star_filter or has_date_filter
+        assert has_pushed_filter and has_star_filter

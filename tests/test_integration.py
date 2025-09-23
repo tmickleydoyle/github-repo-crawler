@@ -85,6 +85,7 @@ class TestCrawlerIntegration:
                     mock_args.return_value.repos = 1000
                     mock_args.return_value.matrix_total = 1
                     mock_args.return_value.matrix_index = 0
+                    mock_args.return_value.consolidate_only = False
 
                     await run()
 
@@ -120,6 +121,7 @@ class TestCrawlerIntegration:
                 mock_args.return_value.repos = 1000
                 mock_args.return_value.matrix_total = 1
                 mock_args.return_value.matrix_index = 0
+                mock_args.return_value.consolidate_only = False
 
                 await run()
 
@@ -185,6 +187,7 @@ class TestErrorHandling:
                 mock_args.return_value.repos = 1000
                 mock_args.return_value.matrix_total = 1
                 mock_args.return_value.matrix_index = 0
+                mock_args.return_value.consolidate_only = False
 
                 with pytest.raises(ValueError):
                     await run()
