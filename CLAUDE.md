@@ -51,3 +51,4 @@ These practices become increasingly important as your application grows in compl
 **Dead code** should never be included in the application
 **Unused imports** should never be included in the application
 **Centralization, centralization, centralization,** make sure to centralize as much logic as possible so that junior engineers with no knowledge of the project can easily maintain this code
+**Always run code quality checks**

@@ -537,9 +537,18 @@ jobs:
           HOUR=$(date -u +%H)
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
+
+          # Pull latest changes to avoid conflicts
+          git pull origin main || git pull origin master || true
+
+          # Force add the hourly CSV (overwrites if exists)
           git add --force database_exports/github_repositories_final_h${HOUR}.csv
-          git commit -m "Add hourly database export (hour ${HOUR}) - $(date)" || echo "No changes to commit"
-          git push --force origin HEAD:main || git push --force origin HEAD:master
+
+          # Commit with a message indicating it's an update/overwrite
+          git commit -m "Update hourly database export (hour ${HOUR}) - $(date)" || echo "No changes to commit"
+
+          # Push only the CSV data, not workflow changes
+          git push origin HEAD:main || git push origin HEAD:master
           echo "✅ Database exports committed and pushed to repository"
 
       - name: Upload final results
