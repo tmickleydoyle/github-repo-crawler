@@ -4,58 +4,564 @@ on:
   schedule:
     # Run every hour
     - cron: '0 * * * *'
-  workflow_dispatch: # Allow manual runs
+  workflow_dispatch:
+    inputs:
+      matrix_size:
+        description: "Number of parallel crawler jobs (1-200)"
+        required: false
+        default: "50"
+        type: string
+      max_repos_per_job:
+        description: "Max repositories per job"
+        required: false
+        default: "1000"
+        type: string
+
+permissions:
+  contents: write
+  actions: write
+  id-token: write
+  packages: read
+
+env:
+  POSTGRES_DB: crawler
+  POSTGRES_USER: postgres
+  POSTGRES_PASSWORD: postgres
+  POSTGRES_HOST: localhost
+  POSTGRES_PORT: 5432
 
 jobs:
-  crawl:
+  generate-matrix:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      matrix_size: ${{ steps.set-matrix.outputs.matrix_size }}
+    steps:
+      - name: Generate matrix
+        id: set-matrix
+        run: |
+          # Use input if manual trigger, otherwise use default of 50 for hourly
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            matrix_size=${{ github.event.inputs.matrix_size || '50' }}
+          else
+            matrix_size=50
+          fi
+
+          echo "Generating matrix for $matrix_size jobs"
+
+          # Generate array of job indices
+          matrix_array="["
+          for i in $(seq 0 $((matrix_size - 1))); do
+            if [ $i -eq 0 ]; then
+              matrix_array="$matrix_array$i"
+            else
+              matrix_array="$matrix_array,$i"
+            fi
+          done
+          matrix_array="$matrix_array]"
+
+          echo "matrix={\"job_index\":$matrix_array}" >> $GITHUB_OUTPUT
+          echo "matrix_size=$matrix_size" >> $GITHUB_OUTPUT
+          echo "Generated matrix: {\"job_index\":$matrix_array}"
+
+  crawl:
+    needs: generate-matrix
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
+      id-token: write
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: ${{ env.POSTGRES_DB }}
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
     strategy:
-      matrix:
-        # Run 50 parallel jobs for better coverage
-        matrix_index: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49]
-      fail-fast: false # Don't cancel other jobs if one fails
+      matrix: ${{ fromJson(needs.generate-matrix.outputs.matrix) }}
+      max-parallel: 250
+      fail-fast: false
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.11'
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+          cache: "pip"
 
-    - name: Install dependencies
-      run: |
-        pip install -r requirements.txt
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
 
-    - name: Run crawler with persistence
-      env:
-        # GitHub API token
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create database schema
+        run: |
+          export GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
+          export POSTGRES_HOST="${{ env.POSTGRES_HOST }}"
+          export POSTGRES_PORT="${{ env.POSTGRES_PORT }}"
+          export POSTGRES_DB="${{ env.POSTGRES_DB }}"
+          export POSTGRES_USER="${{ env.POSTGRES_USER }}"
+          export POSTGRES_PASSWORD="${{ env.POSTGRES_PASSWORD }}"
+          export MAX_REPOS="${{ github.event.inputs.max_repos_per_job || '1000' }}"
 
-        # Supabase database connection (use URL for simplicity)
-        DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          python -c "
+          import asyncio
+          import asyncpg
+          import os
 
-        # Alternative: Individual Supabase connection parameters
-        # POSTGRES_HOST: ${{ secrets.POSTGRES_HOST }}
-        # POSTGRES_PORT: ${{ secrets.POSTGRES_PORT }}
-        # POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
-        # POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
-        # POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          async def create_schema():
+              conn = await asyncpg.connect(
+                  host=os.getenv('POSTGRES_HOST'),
+                  port=int(os.getenv('POSTGRES_PORT')),
+                  user=os.getenv('POSTGRES_USER'),
+                  password=os.getenv('POSTGRES_PASSWORD'),
+                  database=os.getenv('POSTGRES_DB')
+              )
 
-        # Crawler settings
-        MAX_REPOS: 1000
-        LOG_LEVEL: INFO
+              await conn.execute('''
+                  CREATE TABLE IF NOT EXISTS repo (
+                      id BIGINT PRIMARY KEY,
+                      name TEXT NOT NULL,
+                      owner TEXT NOT NULL,
+                      url TEXT NOT NULL,
+                      created_at TIMESTAMP,
+                      alphabet_partition VARCHAR(100),
+                      name_with_owner TEXT,
+                      last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                  )
+              ''')
 
-      run: |
-        python -m crawler.main \
-          --repos $MAX_REPOS \
-          --matrix-total 50 \
-          --matrix-index ${{ matrix.matrix_index }}
+              await conn.execute('''
+                  CREATE TABLE IF NOT EXISTS repo_stats (
+                      repo_id BIGINT NOT NULL REFERENCES repo(id) ON DELETE CASCADE,
+                      fetched_date DATE NOT NULL,
+                      stars INT NOT NULL,
+                      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                      PRIMARY KEY(repo_id, fetched_date)
+                  )
+              ''')
 
-    - name: Check persistence stats
-      if: matrix.matrix_index == 0  # Only run on first job
-      env:
-        DATABASE_URL: ${{ secrets.DATABASE_URL }}
-      run: |
-        python scripts/check_persistence.py
+              # Create indexes for performance
+              await conn.execute('CREATE INDEX IF NOT EXISTS idx_repo_name_with_owner ON repo (name_with_owner)')
+              await conn.execute('CREATE INDEX IF NOT EXISTS idx_repo_alphabet_partition ON repo (alphabet_partition)')
+              await conn.execute('CREATE INDEX IF NOT EXISTS idx_repo_created_at ON repo (created_at)')
+
+              await conn.close()
+              print('✅ Database schema created')
+
+          asyncio.run(create_schema())
+          "
+
+      - name: Run crawler (Job ${{ matrix.job_index }})
+        run: |
+          export GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
+          export POSTGRES_HOST="${{ env.POSTGRES_HOST }}"
+          export POSTGRES_PORT="${{ env.POSTGRES_PORT }}"
+          export POSTGRES_DB="${{ env.POSTGRES_DB }}"
+          export POSTGRES_USER="${{ env.POSTGRES_USER }}"
+          export POSTGRES_PASSWORD="${{ env.POSTGRES_PASSWORD }}"
+          export MAX_REPOS="${{ github.event.inputs.max_repos_per_job || '1000' }}"
+
+          echo "🚀 Starting crawler job ${{ matrix.job_index }} of ${{ needs.generate-matrix.outputs.matrix_size }}"
+          echo "🎯 Target: ${MAX_REPOS} repositories"
+          echo "🕐 Hour: $(date -u +%H)"
+
+          # Check if GitHub token is set
+          if [ -z "$GITHUB_TOKEN" ]; then
+            echo "❌ ERROR: GITHUB_TOKEN secret is not set!"
+            echo "Please ensure the GITHUB_TOKEN secret is configured in your repository settings."
+            exit 1
+          fi
+
+          echo "🔑 GitHub token length: ${#GITHUB_TOKEN} characters"
+
+          # Test GitHub API access first
+          echo "🔍 Testing GitHub API access..."
+          API_TEST=$(curl -s -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+               -H "Accept: application/vnd.github.v4+json" \
+               -d '{"query":"query { viewer { login } }"}' \
+               https://api.github.com/graphql)
+
+          if echo "$API_TEST" | grep -q '"login"'; then
+            echo "✅ GitHub API authentication successful"
+            echo "$API_TEST" | grep -o '"login":"[^"]*"'
+          else
+            echo "❌ GitHub API authentication failed!"
+            echo "Response: $API_TEST"
+            exit 1
+          fi
+
+          # Run crawler with error handling and verbose logging
+          set -e
+          echo "🏃 Starting Python crawler..."
+          echo "📝 Debug info:"
+          echo "  - MAX_REPOS: ${MAX_REPOS}"
+          echo "  - Matrix Total: ${{ needs.generate-matrix.outputs.matrix_size }}"
+          echo "  - Matrix Index: ${{ matrix.job_index }}"
+          echo "  - Database: ${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}"
+
+          # Run with explicit error capture
+          python -m crawler.main \
+            --repos ${MAX_REPOS} \
+            --matrix-total ${{ needs.generate-matrix.outputs.matrix_size }} \
+            --matrix-index ${{ matrix.job_index }} 2>&1 | tee crawler_output.log || {
+            EXIT_CODE=$?
+            echo "❌ Crawler failed with exit code $EXIT_CODE"
+            echo "📋 Last 50 lines of output:"
+            tail -50 crawler_output.log
+            exit $EXIT_CODE
+          }
+
+          echo "✅ Crawler completed successfully"
+
+          # Show summary of what was collected
+          echo "📊 Crawler output summary:"
+          grep -E "Collected:|Total stars:|repositories stored|No repositories" crawler_output.log || echo "No summary found"
+
+      - name: Debug database state
+        run: |
+          export PGPASSWORD="${{ env.POSTGRES_PASSWORD }}"
+          echo "🔍 Debugging database state immediately after crawler..."
+
+          # Check connection
+          psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} -c "SELECT version();" || {
+            echo "❌ Cannot connect to database!"
+            exit 1
+          }
+
+          # Check tables and counts
+          echo "📊 Database statistics:"
+          psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} << EOF
+          SELECT 'Tables:', count(*) FROM information_schema.tables WHERE table_schema = 'public';
+          SELECT 'Repos:', count(*) FROM repo;
+          SELECT 'Stats:', count(*) FROM repo_stats;
+          SELECT 'Sample repos:';
+          SELECT r.id, r.name, r.owner, rs.stars, r.created_at
+          FROM repo r
+          LEFT JOIN repo_stats rs ON r.id = rs.repo_id
+          LIMIT 5;
+          EOF
+
+      - name: Export job data
+        run: |
+          mkdir -p database_exports
+          export PGPASSWORD="${{ env.POSTGRES_PASSWORD }}"
+          TIMESTAMP=$(date +"%Y%m%d%H%M%S")
+
+          # Get counts before export
+          echo "📊 Checking database contents for job ${{ matrix.job_index }}..."
+
+          # Check if tables exist first
+          TABLE_CHECK=$(psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_name IN ('repo', 'repo_stats');" | tr -d ' ')
+          echo "  - Tables found: ${TABLE_CHECK}/2"
+
+          if [ "$TABLE_CHECK" -eq "2" ]; then
+            REPO_COUNT=$(psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} -t -c "SELECT COUNT(*) FROM repo;" | tr -d ' ')
+            STATS_COUNT=$(psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} -t -c "SELECT COUNT(*) FROM repo_stats;" | tr -d ' ')
+
+            echo "📊 Job ${{ matrix.job_index }} database state:"
+            echo "  - Repositories in DB: ${REPO_COUNT}"
+            echo "  - Stats records in DB: ${STATS_COUNT}"
+
+            # Show sample data if any exists
+            if [ "$REPO_COUNT" -gt "0" ]; then
+              echo "  - Sample repos:"
+              psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} -c "SELECT r.id, r.name, r.owner, rs.stars FROM repo r LEFT JOIN repo_stats rs ON r.id = rs.repo_id LIMIT 3;"
+            fi
+          else
+            echo "⚠️ WARNING: Database tables not found!"
+            REPO_COUNT=0
+            STATS_COUNT=0
+          fi
+
+          if [ "$REPO_COUNT" -eq 0 ]; then
+            echo "⚠️ WARNING: No repositories found in database!"
+            echo "🔍 Creating empty CSV files for consistency..."
+            echo "id,name,owner,url,created_at,alphabet_partition,name_with_owner" > "database_exports/repo_${TIMESTAMP}.csv"
+            echo "repo_id,fetched_date,stars" > "database_exports/repo_stats_${TIMESTAMP}.csv"
+          else
+            # Export repo table to CSV
+            echo "📤 Exporting ${REPO_COUNT} repositories to CSV..."
+            psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} \
+              -c "\copy (SELECT * FROM repo) TO 'database_exports/repo_${TIMESTAMP}.csv' CSV HEADER" || echo "❌ Failed to export repo table"
+
+            # Export repo_stats table to CSV
+            echo "📤 Exporting ${STATS_COUNT} stat records to CSV..."
+            psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} \
+              -c "\copy (SELECT * FROM repo_stats) TO 'database_exports/repo_stats_${TIMESTAMP}.csv' CSV HEADER" || echo "❌ Failed to export repo_stats table"
+          fi
+
+          echo "✅ Export process completed"
+          echo "📂 Files created:"
+          ls -la database_exports/ || echo "❌ No database_exports directory found"
+
+      - name: Upload job artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: crawler-job-${{ matrix.job_index }}
+          path: |
+            database_exports/*.csv
+
+  aggregate:
+    needs: [generate-matrix, crawl]
+    runs-on: ubuntu-latest
+    # Run aggregation even if some crawl jobs fail
+    if: always() && needs.crawl.result != 'skipped'
+    permissions:
+      contents: write
+      actions: write
+      id-token: write
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: ${{ env.POSTGRES_DB }}
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Download all job artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./job-results
+
+      - name: Recreate database and aggregate data
+        run: |
+          mkdir -p database_exports
+          export PGPASSWORD="${{ env.POSTGRES_PASSWORD }}"
+
+          # Create database schema
+          psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} \
+            -c "CREATE TABLE IF NOT EXISTS repo (
+                  id BIGINT PRIMARY KEY,
+                  name TEXT NOT NULL,
+                  owner TEXT NOT NULL,
+                  url TEXT NOT NULL,
+                  created_at TIMESTAMP,
+                  alphabet_partition VARCHAR(100),
+                  name_with_owner TEXT,
+                  last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE TABLE IF NOT EXISTS repo_stats (
+                  repo_id BIGINT NOT NULL REFERENCES repo(id) ON DELETE CASCADE,
+                  fetched_date DATE NOT NULL,
+                  stars INT NOT NULL,
+                  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                  PRIMARY KEY(repo_id, fetched_date)
+                );
+                TRUNCATE TABLE repo CASCADE;"
+
+          # Track aggregation statistics
+          TOTAL_REPO_ROWS=0
+          TOTAL_STATS_ROWS=0
+          SKIPPED_DUPLICATES=0
+          CSV_FILES_PROCESSED=0
+          EMPTY_CSV_FILES=0
+
+          echo "🔍 Starting CSV file aggregation..."
+          echo "📂 Scanning for job result directories..."
+
+          # Import CSV files using regular tables to handle duplicates properly
+          for csv_dir in ./job-results/crawler-job-*; do
+            if [ -d "$csv_dir" ]; then
+              echo "Processing CSV files from $csv_dir"
+
+              # Check if directory has any CSV files
+              if ! ls "$csv_dir"/*.csv 1> /dev/null 2>&1; then
+                echo "⚠️ WARNING: No CSV files found in $csv_dir"
+                continue
+              fi
+
+              for csv_file in "$csv_dir"/*.csv; do
+                # Check if file exists and is readable
+                if [ ! -f "$csv_file" ] || [ ! -r "$csv_file" ]; then
+                  echo "⚠️ WARNING: CSV file $csv_file is not readable or does not exist"
+                  continue
+                fi
+
+                # Check if file has content beyond header
+                FILE_LINE_COUNT=$(wc -l < "$csv_file")
+                if [ "$FILE_LINE_COUNT" -le 1 ]; then
+                  echo "⚠️ WARNING: CSV file $csv_file appears to be empty (only header or no content): ${FILE_LINE_COUNT} lines"
+                  EMPTY_CSV_FILES=$((EMPTY_CSV_FILES + 1))
+                  continue
+                fi
+
+                echo "✅ Processing CSV file: $csv_file (${FILE_LINE_COUNT} lines)"
+                CSV_FILES_PROCESSED=$((CSV_FILES_PROCESSED + 1))
+                if [[ "$csv_file" == *"repo_"* ]] && [[ "$csv_file" != *"repo_stats_"* ]]; then
+                  echo "Importing repo data from $csv_file"
+                  # Count rows before import
+                  BEFORE_COUNT=$(psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} -t -c "SELECT COUNT(*) FROM repo;" | tr -d ' ')
+
+                  # Generate unique table name using timestamp and random number
+                  TABLE_SUFFIX=$(date +%s)_$$
+                  TEMP_TABLE_NAME="temp_repo_${TABLE_SUFFIX}"
+
+                  # Use psql commands for import with proper duplicate handling
+                  echo "Creating temporary table and importing data..."
+
+                  # Create temporary table
+                  psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} \
+                    -c "CREATE TABLE ${TEMP_TABLE_NAME} (LIKE repo INCLUDING ALL);"
+
+                  # Copy data to temporary table
+                  psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} \
+                    -c "\\copy ${TEMP_TABLE_NAME} FROM '${csv_file}' CSV HEADER"
+
+                  # Insert with conflict resolution and cleanup
+                  psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} \
+                    -c "INSERT INTO repo SELECT * FROM ${TEMP_TABLE_NAME} ON CONFLICT (id) DO NOTHING; DROP TABLE ${TEMP_TABLE_NAME};"
+
+                  # Count rows after import and calculate imported vs skipped
+                  AFTER_COUNT=$(psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} -t -c "SELECT COUNT(*) FROM repo;" | tr -d ' ')
+                  FILE_ROWS=$(wc -l < "$csv_file")
+                  IMPORTED_ROWS=$((AFTER_COUNT - BEFORE_COUNT))
+                  SKIPPED_IN_FILE=$((FILE_ROWS - 1 - IMPORTED_ROWS))
+                  TOTAL_REPO_ROWS=$((TOTAL_REPO_ROWS + FILE_ROWS - 1))
+                  SKIPPED_DUPLICATES=$((SKIPPED_DUPLICATES + SKIPPED_IN_FILE))
+
+                  echo "  📊 File rows: $((FILE_ROWS - 1)), Imported: ${IMPORTED_ROWS}, Skipped duplicates: ${SKIPPED_IN_FILE}"
+
+                elif [[ "$csv_file" == *"repo_stats_"* ]]; then
+                  echo "Importing repo_stats data from $csv_file"
+
+                  # Generate unique table name using timestamp and random number
+                  TABLE_SUFFIX=$(date +%s)_$$
+                  TEMP_TABLE_NAME="temp_repo_stats_${TABLE_SUFFIX}"
+
+                  # Use psql commands for import with proper duplicate handling
+                  echo "Creating temporary table and importing stats data..."
+
+                  # Create temporary table
+                  psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} \
+                    -c "CREATE TABLE ${TEMP_TABLE_NAME} (LIKE repo_stats INCLUDING ALL);"
+
+                  # Copy data to temporary table
+                  psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} \
+                    -c "\\copy ${TEMP_TABLE_NAME} FROM '${csv_file}' CSV HEADER"
+
+                  # Insert with conflict resolution and cleanup
+                  psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} \
+                    -c "INSERT INTO repo_stats SELECT * FROM ${TEMP_TABLE_NAME} ON CONFLICT (repo_id, fetched_date) DO UPDATE SET stars = EXCLUDED.stars; DROP TABLE ${TEMP_TABLE_NAME};"
+
+                  FILE_ROWS=$(wc -l < "$csv_file")
+                  TOTAL_STATS_ROWS=$((TOTAL_STATS_ROWS + FILE_ROWS - 1))
+                fi
+              done
+            fi
+          done
+
+          # Final counts
+          FINAL_REPO_COUNT=$(psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} -t -c "SELECT COUNT(*) FROM repo;" | tr -d ' ')
+          FINAL_STATS_COUNT=$(psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} -t -c "SELECT COUNT(*) FROM repo_stats;" | tr -d ' ')
+
+          echo "✅ Data aggregation completed"
+          echo "📊 Aggregation Summary:"
+          echo "  - CSV files processed: ${CSV_FILES_PROCESSED}"
+          echo "  - Empty CSV files skipped: ${EMPTY_CSV_FILES}"
+          echo "  - Total rows processed: ${TOTAL_REPO_ROWS} repos, ${TOTAL_STATS_ROWS} stats"
+          echo "  - Final unique records: ${FINAL_REPO_COUNT} repos, ${FINAL_STATS_COUNT} stats"
+          echo "  - Duplicate repos skipped: ${SKIPPED_DUPLICATES}"
+          if [ "${TOTAL_REPO_ROWS}" -gt 0 ]; then
+            echo "  - Deduplication rate: $(( (SKIPPED_DUPLICATES * 100) / TOTAL_REPO_ROWS ))% overlap between jobs"
+          else
+            echo "  - Deduplication rate: N/A (no data processed)"
+          fi
+
+      - name: Create final export with hour suffix
+        run: |
+          export PGPASSWORD="${{ env.POSTGRES_PASSWORD }}"
+          TIMESTAMP=$(date +"%Y%m%d%H%M%S")
+          HOUR=$(date -u +%H)
+
+          echo "🕐 Creating export for hour: ${HOUR}"
+
+          # Export final combined data to CSV
+          psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} \
+            -c "\copy (
+              SELECT r.id, r.name, r.name_with_owner, r.url, r.created_at, rs.stars, rs.fetched_date as crawled_at
+              FROM repo r
+              JOIN repo_stats rs ON r.id = rs.repo_id
+              ORDER BY rs.stars DESC, r.id
+            ) TO 'github_repositories_final_h${HOUR}.csv' CSV HEADER"
+
+          echo "✅ Final export created: github_repositories_final_h${HOUR}.csv with $(wc -l < github_repositories_final_h${HOUR}.csv) rows"
+
+      - name: Copy to database_exports directory
+        run: |
+          mkdir -p database_exports
+          HOUR=$(date -u +%H)
+          cp github_repositories_final_h${HOUR}.csv database_exports/
+          echo "✅ Copied export to database_exports directory"
+
+      - name: Commit and push database exports
+        run: |
+          HOUR=$(date -u +%H)
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add --force database_exports/github_repositories_final_h${HOUR}.csv
+          git commit -m "Add hourly database export (hour ${HOUR}) - $(date)" || echo "No changes to commit"
+          git push --force origin HEAD:main || git push --force origin HEAD:master
+          echo "✅ Database exports committed and pushed to repository"
+
+      - name: Upload final results
+        uses: actions/upload-artifact@v4
+        with:
+          name: final-results-hour-$(date -u +%H)
+          path: |
+            github_repositories_final_h*.csv
+            database_exports/
+
+      - name: Display summary
+        run: |
+          HOUR=$(date -u +%H)
+          echo "🎉 Hourly GitHub Crawler completed successfully!"
+          echo ""
+          echo "📊 Results:"
+          echo "- Hour: ${HOUR}"
+          echo "- Matrix jobs: ${{ needs.generate-matrix.outputs.matrix_size }}"
+          echo "- Target per job: ${{ github.event.inputs.max_repos_per_job || '1000' }}"
+          echo "- CSV export: github_repositories_final_h${HOUR}.csv"
+          echo ""
+          if [ -f github_repositories_final_h${HOUR}.csv ]; then
+            repo_count=$(wc -l < github_repositories_final_h${HOUR}.csv)
+            echo "✅ Total repositories collected for hour ${HOUR}: $((repo_count - 1))"
+          fi
