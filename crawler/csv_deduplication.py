@@ -375,7 +375,7 @@ class CSVDeduplicator:
 
                     try:
                         with open(
-                            matrix_file, "r", newline="", encoding="utf-8"
+                            matrix_file, newline="", encoding="utf-8"
                         ) as input_file:
                             reader = csv.DictReader(input_file)
                             file_repo_count = 0

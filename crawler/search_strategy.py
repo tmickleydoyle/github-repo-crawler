@@ -5,6 +5,7 @@ This module provides a simplified, more effective approach to discovering
 diverse GitHub repositories while respecting API limits.
 """
 
+import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
@@ -539,81 +540,53 @@ class SearchStrategy:
 
 
 class SimpleSearchStrategy(SearchStrategy):
-    """Ultra-aggressive search strategy designed to maximize repository collection
-    by creating extremely granular search partitions that work around GitHub's
-    1000-result API limit.
+    """Deterministic hour-based search strategy for maximum repository coverage.
+
+    Each hour gets unique, non-overlapping queries using:
+    - Hash-based distribution for topics
+    - Round-robin for languages
+    - Logarithmic star range partitioning
+    - Date sampling across multiple time periods
     """
 
-    def _get_hour_specific_time_ranges(self) -> list[str]:
-        """Generate time ranges filtered by current hour of day.
-
-        This creates time ranges that target repositories created during
-        the same hour of day as the current time, across all dates.
-        """
-        current_hour = datetime.utcnow().hour
-
-        # Generate date ranges for the current hour across different months/years
-        hour_ranges = []
-
-        # Recent months with hourly precision
+    def _get_star_ranges_for_hour(self, hour: int) -> list[str]:
+        """Generate hour-specific star ranges with logarithmic distribution."""
         base_ranges = [
-            ("2024-12", "2024-12-31"),
-            ("2024-11", "2024-11-30"),
-            ("2024-10", "2024-10-31"),
-            ("2024-09", "2024-09-30"),
-            ("2024-08", "2024-08-31"),
-            ("2024-07", "2024-07-31"),
-            ("2024-06", "2024-06-30"),
-            ("2024-05", "2024-05-31"),
-            ("2024-04", "2024-04-30"),
-            ("2024-03", "2024-03-31"),
-            ("2024-02", "2024-02-29"),
-            ("2024-01", "2024-01-31"),
-            ("2023-12", "2023-12-31"),
-            ("2023-11", "2023-11-30"),
-            ("2023-10", "2023-10-31"),
-            ("2023-09", "2023-09-30"),
-            ("2023-08", "2023-08-31"),
-            ("2023-07", "2023-07-31"),
-            ("2023-06", "2023-06-30"),
-            ("2023-05", "2023-05-31"),
-            ("2023-04", "2023-04-30"),
-            ("2023-03", "2023-03-31"),
-            ("2023-02", "2023-02-28"),
-            ("2023-01", "2023-01-31"),
+            (0, 0),
+            (1, 1),
+            (2, 5),
+            (6, 10),
+            (11, 20),
+            (21, 50),
+            (51, 100),
+            (101, 200),
+            (201, 500),
+            (501, 1000),
+            (1001, 5000),
+            (5001, 10000),
+            (10001, 50000),
+            (50001, 1000000),
         ]
 
-        # For each month, create hourly time ranges
-        for start_month, end_date in base_ranges:
-            # Create time range for the current hour within this month
-            start_time = f"{start_month}-01T{current_hour:02d}:00:00Z"
-            end_time = f"{end_date}T{current_hour:02d}:59:59Z"
-            hour_ranges.append(f"{start_time}..{end_time}")
+        hour_ranges = []
+        for min_val, max_val in base_ranges:
+            if max_val - min_val <= 24:
+                # Small range - assign specific values to hours
+                if min_val <= hour <= max_val:
+                    hour_ranges.append(f"{hour}..{hour}")
+            else:
+                # Large range - divide equally among hours
+                step = max(1, (max_val - min_val) // 24)
+                hour_min = min_val + (hour * step)
+                hour_max = min(min_val + ((hour + 1) * step) - 1, max_val)
+                if hour_min <= hour_max:
+                    hour_ranges.append(f"{hour_min}..{hour_max}")
 
         return hour_ranges
 
-    def generate_queries(
-        self, matrix_index: int = 0, matrix_total: int = 1
-    ) -> list[SearchQuery]:
-        """Generate ultra-partitioned search queries optimized for maximum
-        repository discovery."""
-
-        if matrix_total == 1:
-            return [
-                SearchQuery(
-                    "is:public stars:0..2 sort:updated", "Very low stars, recent", 1000
-                ),
-                SearchQuery("is:public stars:3..8 sort:stars", "Low stars", 1000),
-                SearchQuery(
-                    "is:public stars:9..25 sort:updated", "Medium-low stars", 1000
-                ),
-                SearchQuery("is:public stars:26..80 sort:stars", "Medium stars", 1000),
-                SearchQuery(
-                    "is:public stars:81..300 sort:updated", "Higher stars", 1000
-                ),
-            ]
-
-        languages = [
+    def _get_languages_for_hour(self, hour: int) -> list[str]:
+        """Get languages assigned to this hour via round-robin distribution."""
+        all_languages = [
             "javascript",
             "python",
             "java",
@@ -670,106 +643,158 @@ class SimpleSearchStrategy(SearchStrategy):
             "mathematica",
             "tex",
             "nix",
+            "solidity",
+            "groovy",
+            "apex",
+            "plsql",
         ]
 
-        star_ranges = [
-            "0..5",
-            "6..10",
-            "11..15",
-            "16..25",
-            "26..40",
-            "41..60",
-            "61..90",
-            "91..130",
-            "131..180",
-            "181..250",
-            "251..350",
-            "351..500",
-            "501..700",
-            "701..1000",
-            "1001..1400",
-            "1401..2000",
-            "2001..3000",
-            "3001..4500",
-            "4501..7000",
-            "7001..10000",
-            "10001..15000",
-            "15001..25000",
-            "25001..50000",
-            ">50000",
-        ]
+        # Round-robin: each hour gets specific languages (2-3 per hour with 60 languages)
+        return [lang for i, lang in enumerate(all_languages) if i % 24 == hour]
 
-        sizes = [
-            "<5",
-            "5..15",
-            "16..50",
-            "51..150",
-            "151..500",
-            "501..1500",
-            "1501..5000",
-            ">5000",
-        ]
-
-        topics = [
-            "api",
-            "cli",
-            "framework",
-            "library",
-            "tool",
+    def _get_topics_for_hour(self, hour: int) -> list[str]:
+        """Get topics assigned to this hour via hash-based distribution."""
+        all_topics = [
             "web",
-            "mobile",
-            "game",
-            "machine-learning",
-            "data",
-            "security",
-            "blockchain",
-            "iot",
-            "ai",
-            "database",
-            "monitoring",
-            "testing",
-            "automation",
-            "devops",
-            "cloud",
+            "api",
             "frontend",
             "backend",
-            "fullstack",
-            "microservices",
-            "serverless",
-            "kubernetes",
-            "docker",
+            "database",
+            "mobile",
+            "android",
+            "ios",
             "react",
             "vue",
             "angular",
+            "django",
+            "flask",
+            "rails",
+            "spring",
+            "express",
+            "laravel",
+            "nodejs",
+            "docker",
+            "kubernetes",
+            "aws",
+            "azure",
+            "gcp",
+            "terraform",
+            "machine-learning",
+            "deep-learning",
+            "data-science",
+            "ai",
+            "blockchain",
+            "cryptocurrency",
+            "bitcoin",
+            "ethereum",
+            "game",
+            "unity",
+            "unreal",
+            "godot",
+            "pygame",
+            "cli",
+            "terminal",
+            "bash",
+            "automation",
+            "bot",
+            "security",
+            "pentesting",
+            "cryptography",
+            "privacy",
+            "devops",
+            "ci-cd",
+            "monitoring",
+            "logging",
+            "testing",
         ]
 
-        # CRITICAL FIX: Deterministic assignment without overlaps
-        # Build all possible combinations
-        all_combos = []
+        # Hash-based distribution ensures consistent assignment
+        hour_topics = []
+        for topic in all_topics:
+            topic_hash = int(hashlib.md5(topic.encode()).hexdigest(), 16)
+            if topic_hash % 24 == hour:
+                hour_topics.append(topic)
 
-        # Get current hour and generate hour-specific date ranges across multiple days
+        return hour_topics
+
+    def generate_queries(
+        self, matrix_index: int = 0, matrix_total: int = 1
+    ) -> list[SearchQuery]:
+        """Generate deterministic, hour-partitioned search queries.
+
+        Each hour gets unique queries using:
+        - Deterministic language assignment (round-robin)
+        - Deterministic topic assignment (hash-based)
+        - Hour-specific star ranges (logarithmic distribution)
+        - Date sampling for broader coverage
+        """
+        if matrix_total == 1:
+            return [
+                SearchQuery(
+                    "is:public stars:0..2 sort:updated", "Very low stars, recent", 1000
+                ),
+                SearchQuery("is:public stars:3..8 sort:stars", "Low stars", 1000),
+                SearchQuery(
+                    "is:public stars:9..25 sort:updated", "Medium-low stars", 1000
+                ),
+                SearchQuery("is:public stars:26..80 sort:stars", "Medium stars", 1000),
+                SearchQuery(
+                    "is:public stars:81..300 sort:updated", "Higher stars", 1000
+                ),
+            ]
+
+        # Get current hour for deterministic partitioning
         current_hour = datetime.utcnow().hour
 
-        # Generate hour-specific date ranges for the past several months
-        hour_ranges = []
-        today = datetime.utcnow().date()
+        # Get hour-specific partitions using helper methods
+        hour_languages = self._get_languages_for_hour(current_hour)
+        hour_topics = self._get_topics_for_hour(current_hour)
+        hour_star_ranges = self._get_star_ranges_for_hour(current_hour)
 
-        # Go back up to 365 days, sampling different days
+        # Generate date samples for broader coverage
+        today = datetime.utcnow().date()
         date_samples = [
             today - timedelta(days=d)
-            for d in [0, 1, 2, 3, 4, 5, 6, 7, 14, 21, 30, 45, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 365]
+            for d in [
+                0,
+                1,
+                2,
+                3,
+                4,
+                5,
+                6,
+                7,
+                14,
+                21,
+                30,
+                45,
+                60,
+                90,
+                120,
+                150,
+                180,
+                210,
+                240,
+                270,
+                300,
+                330,
+                365,
+            ]
         ]
 
+        hour_ranges = []
         for sample_date in date_samples:
             hour_start = f"{sample_date}T{current_hour:02d}:00:00Z"
             hour_end = f"{sample_date}T{current_hour:02d}:59:59Z"
             hour_ranges.append(f"{hour_start}..{hour_end}")
 
-        # Priority 1: Hour-specific language + stars (primary strategy)
-        # Rotate through different date ranges for variety
+        # Build all possible combinations deterministically
+        all_combos = []
+
+        # Strategy 1: Language + Stars + Date (primary)
         combo_index = 0
-        for lang in languages[:20]:  # Reduced to compensate for multiple date ranges
-            for stars in star_ranges[:10]:  # Reduced star ranges
+        for lang in hour_languages:
+            for stars in hour_star_ranges:
                 hour_filter = hour_ranges[combo_index % len(hour_ranges)]
                 all_combos.append(
                     {
@@ -777,26 +802,14 @@ class SimpleSearchStrategy(SearchStrategy):
                             f"is:public language:{lang} created:{hour_filter} stars:{stars} "
                             f"fork:false archived:false sort:updated"
                         ),
-                        "desc": f"Hour {current_hour}: Lang: {lang}, Stars: {stars}, Date: {hour_filter[:10]}",
+                        "desc": f"H{current_hour}: {lang}, {stars} stars, {hour_filter[:10]}",
                     }
                 )
                 combo_index += 1
 
-        # Priority 2: Hour-specific size + stars across different dates
-        for size in sizes:
-            for stars in star_ranges[:5]:
-                hour_filter = hour_ranges[combo_index % len(hour_ranges)]
-                all_combos.append(
-                    {
-                        "query": f"is:public size:{size} created:{hour_filter} stars:{stars} sort:updated",
-                        "desc": f"Hour {current_hour}: Size: {size}KB, Stars: {stars}, Date: {hour_filter[:10]}",
-                    }
-                )
-                combo_index += 1
-
-        # Priority 3: Hour-specific topic + stars across different dates
-        for topic in topics[:15]:  # Reduced topics
-            for stars in star_ranges[:5]:
+        # Strategy 2: Topic + Stars + Date
+        for topic in hour_topics:
+            for stars in hour_star_ranges[:5]:  # Limit star ranges for topics
                 hour_filter = hour_ranges[combo_index % len(hour_ranges)]
                 all_combos.append(
                     {
@@ -804,24 +817,24 @@ class SimpleSearchStrategy(SearchStrategy):
                             f"is:public topic:{topic} created:{hour_filter} stars:{stars} "
                             f"fork:false sort:updated"
                         ),
-                        "desc": f"Hour {current_hour}: Topic: {topic}, Stars: {stars}, Date: {hour_filter[:10]}",
+                        "desc": f"H{current_hour}: topic:{topic}, {stars} stars, {hour_filter[:10]}",
                     }
                 )
                 combo_index += 1
 
-        # Priority 4: Hour-specific broad queries for different dates
+        # Strategy 3: Broad date + star queries (catch-all)
         for hour_filter in hour_ranges:
-            for stars in star_ranges[:10]:
+            for stars in hour_star_ranges[:3]:  # Top 3 star ranges only
                 all_combos.append(
                     {
                         "query": f"is:public created:{hour_filter} stars:{stars} sort:updated",
-                        "desc": f"Hour {current_hour}: All repos, Stars: {stars}, Date: {hour_filter[:10]}",
+                        "desc": f"H{current_hour}: broad, {stars} stars, {hour_filter[:10]}",
                     }
                 )
 
-        # Calculate unique slice for this job
+        # Partition combinations across matrix jobs
         total = len(all_combos)
-        per_job = total // matrix_total
+        per_job = max(1, total // matrix_total)
         remainder = total % matrix_total
 
         if matrix_index < remainder:
@@ -831,12 +844,11 @@ class SimpleSearchStrategy(SearchStrategy):
             start = matrix_index * per_job + remainder
             end = start + per_job
 
-        # Get this job's unique combinations
         job_combos = all_combos[start:end]
 
-        # Convert to queries (limit to prevent exhaustion)
+        # Convert to SearchQuery objects
         queries = []
-        for combo in job_combos[:20]:  # More queries for aggressive strategy
+        for combo in job_combos[:20]:  # Limit queries per job
             queries.append(
                 SearchQuery(
                     query_string=combo["query"],
@@ -847,20 +859,19 @@ class SimpleSearchStrategy(SearchStrategy):
 
         # Add fallback if too few queries
         if len(queries) < 5:
-            # Generate simple fallback queries based on job index
             for i in range(5 - len(queries)):
-                star_idx = (matrix_index + i) % len(star_ranges)
-                queries.append(
-                    SearchQuery(
-                        query_string=(
-                            f"is:public stars:{star_ranges[star_idx]} sort:updated"
-                        ),
-                        description=(
-                            f"Job {matrix_index}: Fallback {i + 1}, "
-                            f"stars {star_ranges[star_idx]}"
-                        ),
-                        expected_results=900,
+                star_idx = (matrix_index + i) % len(hour_star_ranges)
+                if star_idx < len(hour_star_ranges):
+                    queries.append(
+                        SearchQuery(
+                            query_string=(
+                                f"is:public stars:{hour_star_ranges[star_idx]} sort:updated"
+                            ),
+                            description=(
+                                f"Job {matrix_index}: Fallback, stars {hour_star_ranges[star_idx]}"
+                            ),
+                            expected_results=900,
+                        )
                     )
-                )
 
         return queries
