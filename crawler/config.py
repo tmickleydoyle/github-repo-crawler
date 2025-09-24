@@ -75,7 +75,12 @@ class Settings(BaseSettings):
     def database_url(self) -> str:
         """Get database URL from components."""
         pwd = self.database_password.get_secret_value()
-        return f"postgresql://{self.database_username}:{pwd}@{self.database_host}:{self.database_port}/{self.database_name}"
+        return (
+            "postgresql://"
+            f"{self.database_username}:{pwd}@"
+            f"{self.database_host}:{self.database_port}/"
+            f"{self.database_name}"
+        )
 
     @property
     def is_production(self) -> bool:

@@ -1,3 +1,0 @@
-id,name,name_with_owner,url,created_at,stars,crawled_at
-1,test-repo-1,test-user-1/test-repo-1,https://github.com/test-user-1/test-repo-1,,100,2025-09-22T20:02:29.397038Z
-2,test-repo-2,test-user-2/test-repo-2,https://github.com/test-user-2/test-repo-2,,50,2025-09-22T20:02:29.397038Z

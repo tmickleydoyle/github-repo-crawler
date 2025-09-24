@@ -1,3 +1,0 @@
-id,name,name_with_owner,url,created_at,stars,crawled_at
-2001,test-repo-3,user3/test-repo-3,https://github.com/user3/test-repo-3,2025-09-23T00:15:00Z,25,2025-09-23T00:45:00Z
-2002,test-repo-4,user4/test-repo-4,https://github.com/user4/test-repo-4,2025-09-23T00:55:00Z,15,2025-09-23T00:45:00Z

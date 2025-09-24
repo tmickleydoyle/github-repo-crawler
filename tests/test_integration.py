@@ -95,7 +95,8 @@ class TestCrawlerIntegration:
                     assert call_args.kwargs["matrix_total"] == 1
                     assert call_args.kwargs["matrix_index"] == 0
                     assert call_args.kwargs["target_repos"] == 1000
-                    # Should have db_repository since database connection should work with mocking
+                    # Should have db_repository since database connection
+                    # should work with mocking
                     assert call_args.kwargs["db_repository"] == mock_db
                     # Should have csv_deduplicator for additional filtering
                     assert call_args.kwargs["csv_deduplicator"] is not None
@@ -264,7 +265,8 @@ class TestPerformance:
             assert duration < 5.0
 
             # Verify all repositories were processed
-            # execute should be called for each repo (insert into repo + repo_stats)
-            # 2 inserts per repo (schema initialization is not called by store_repositories)
+            # execute should be called for each repo (insert into repo +
+            # repo_stats). 2 inserts per repo (schema initialization is not
+            # called by store_repositories)
             expected_calls = len(large_repo_set) * 2
             assert mock_conn.execute.call_count >= expected_calls
