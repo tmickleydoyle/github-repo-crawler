@@ -67,10 +67,10 @@ class TestSimpleSearchStrategy:
             queries = strategy.generate_queries(matrix_index=i, matrix_total=10)
 
             for query in queries:
-                if "pushed:" in query.query_string:
+                if "pushed:" in query.query_string or "created:" in query.query_string:
                     parts = query.query_string.split()
                     for part in parts:
-                        if part.startswith("pushed:"):
+                        if part.startswith("pushed:") or part.startswith("created:"):
                             date = part.split(":")[1]
                             all_pushed_dates.add(date)
 
@@ -135,7 +135,9 @@ class TestSimpleSearchStrategy:
 
         assert len(set(query_strings)) > 1
 
-        has_pushed_filter = any("pushed:" in q for q in query_strings)
+        has_pushed_filter = any(
+            "pushed:" in q or "created:" in q for q in query_strings
+        )
         has_star_filter = any("stars:" in q for q in query_strings)
 
         assert has_pushed_filter and has_star_filter
