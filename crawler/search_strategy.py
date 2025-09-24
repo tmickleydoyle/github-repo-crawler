@@ -71,7 +71,7 @@ class SimpleSearchStrategy:
             base_offset = (current_day_of_year * 24 + current_hour) * 30
 
             queries = []
-            for day_offset in range(base_offset, base_offset + 10):
+            for day_offset in range(base_offset, base_offset + 30):  # More days for single job
                 target_date = datetime.now(UTC) - timedelta(days=day_offset)
                 date_str = target_date.strftime("%Y-%m-%d")
                 star_buckets = [
@@ -86,7 +86,7 @@ class SimpleSearchStrategy:
                 for stars in star_buckets:
                     queries.append(
                         SearchQuery(
-                            f"is:public pushed:{date_str} stars:{stars} sort:updated",
+                            f"is:public pushed:>{date_str} stars:{stars} sort:updated",
                             f"Pushed {date_str}, stars:{stars}",
                             1000,
                         )
@@ -295,7 +295,7 @@ class SimpleSearchStrategy:
                 all_combos.append(
                     {
                         "query": (
-                            f"is:public pushed:{date_str} stars:{stars} sort:updated"
+                            f"is:public pushed:>{date_str} stars:{stars} sort:updated"
                         ),
                         "desc": f"Pushed {date_str}, stars:{stars}",
                     }
@@ -372,7 +372,7 @@ class SimpleSearchStrategy:
 
         # Convert to SearchQuery objects - take as many as possible
         queries = []
-        for combo in all_combos[:50]:  # Increase to 50 queries per job
+        for combo in all_combos[:200]:  # Increase to 200 queries per job for better coverage
             queries.append(
                 SearchQuery(
                     query_string=combo["query"],
@@ -395,7 +395,7 @@ class SimpleSearchStrategy:
             ]
 
             for q in broad_queries:
-                if len(queries) >= 50:
+                if len(queries) >= 200:
                     break
                 queries.append(
                     SearchQuery(
