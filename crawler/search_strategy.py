@@ -65,16 +65,13 @@ class SimpleSearchStrategy:
         - Minimize restrictive filters
         """
         if matrix_total == 1:
-            # Generate diverse queries even for single matrix job
-            current_hour = datetime.now(UTC).hour
-            current_day_of_year = datetime.now(UTC).timetuple().tm_yday
-            base_offset = (current_day_of_year * 24 + current_hour) * 30
-
+            # Single job: use created dates starting from 2025-01-01
+            start_date = datetime(2025, 1, 1, tzinfo=UTC)
             queries = []
-            for day_offset in range(
-                base_offset, base_offset + 30
-            ):  # More days for single job
-                target_date = datetime.now(UTC) - timedelta(days=day_offset)
+
+            # Query 50 different days with various star ranges
+            for day_offset in range(50):
+                target_date = start_date - timedelta(days=day_offset)
                 date_str = target_date.strftime("%Y-%m-%d")
                 star_buckets = [
                     "0..10",
@@ -86,25 +83,22 @@ class SimpleSearchStrategy:
                     ">5000",
                 ]
                 for stars in star_buckets:
+                    if len(queries) >= 100:  # Limit to 100 queries
+                        break
                     queries.append(
                         SearchQuery(
-                            f"is:public pushed:>{date_str} stars:{stars} sort:updated",
-                            f"Pushed {date_str}, stars:{stars}",
+                            f"is:public created:{date_str} stars:{stars} sort:updated",
+                            f"Created {date_str}, stars:{stars}",
                             1000,
                         )
                     )
+                if len(queries) >= 100:
+                    break
             return queries
 
         # Get current hour and day for deterministic partitioning
         current_hour = datetime.now(UTC).hour
         current_day_of_year = datetime.now(UTC).timetuple().tm_yday
-
-        # CRITICAL: Ensure uniqueness across both hours AND days
-        # Use day-of-year to shift the date window so each day queries different dates
-        # This prevents Hour 0 today from overlapping with Hour 0 tomorrow
-        base_offset = (
-            current_day_of_year * 24 + current_hour
-        ) * 30  # Unique offset per hour per day
 
         all_combos = []
 
@@ -248,7 +242,7 @@ class SimpleSearchStrategy:
             idx = (hour_start_index + i) % len(repo_name_keywords)
             hour_keywords.append(repo_name_keywords[idx])
 
-        # Strategy 1: Name-based queries with star ranges (high coverage)
+        # Strategy 1: Name-based queries with star ranges
         # Each matrix job gets different keywords + star combinations
         keywords_per_job = (
             max(1, len(hour_keywords) // matrix_total)
@@ -273,8 +267,10 @@ class SimpleSearchStrategy:
             ">5000",
         ]
 
-        # Generate name + stars queries for massive volume
-        for keyword in job_keywords:
+        # Generate name + stars queries
+        for keyword in job_keywords[
+            :5
+        ]:  # Limit keywords to make room for created date queries
             for stars in star_buckets:
                 all_combos.append(
                     {
@@ -285,21 +281,33 @@ class SimpleSearchStrategy:
                     }
                 )
 
-        # Strategy 2: Pushed date ranges (secondary coverage strategy)
-        days_per_job = max(1, 720 // matrix_total)
-        job_day_offset = base_offset + (matrix_index * days_per_job)
+        # Strategy 2: Single-day created dates for maximum uniqueness (PRIMARY STRATEGY)
+        # Start from 2025-01-01 and work backwards, each job gets unique days
+        start_date = datetime(2025, 1, 1, tzinfo=UTC)
 
-        for day_offset in range(job_day_offset, job_day_offset + days_per_job, 1):
-            target_date = datetime.now(UTC) - timedelta(days=day_offset)
+        # Each matrix job gets a unique set of days to query
+        days_per_job = 10  # Each job queries 10 different days with 6 star ranges each = 60 queries
+        job_start_day = matrix_index * days_per_job
+
+        for day_offset in range(job_start_day, job_start_day + days_per_job):
+            target_date = start_date - timedelta(days=day_offset)
             date_str = target_date.strftime("%Y-%m-%d")
 
-            for stars in star_buckets:
+            # Multiple star ranges per day for better coverage
+            for stars in [
+                "0..10",
+                "11..50",
+                "51..100",
+                "101..500",
+                "501..1000",
+                ">1000",
+            ]:
                 all_combos.append(
                     {
                         "query": (
-                            f"is:public pushed:>{date_str} stars:{stars} sort:updated"
+                            f"is:public created:{date_str} stars:{stars} sort:updated"
                         ),
-                        "desc": f"Pushed {date_str}, stars:{stars}",
+                        "desc": f"Created {date_str}, stars:{stars}",
                     }
                 )
 
@@ -375,8 +383,8 @@ class SimpleSearchStrategy:
         # Convert to SearchQuery objects - take as many as possible
         queries = []
         for combo in all_combos[
-            :200
-        ]:  # Increase to 200 queries per job for better coverage
+            :100
+        ]:  # Limit to 100 queries per job to avoid rate limits
             queries.append(
                 SearchQuery(
                     query_string=combo["query"],
@@ -385,21 +393,31 @@ class SimpleSearchStrategy:
                 )
             )
 
-        # If we have very few queries, add broad catch-all queries
-        if len(queries) < 20:
-            # Add more broad queries that will definitely return 1000 results
+        # Always add diverse broad queries for better coverage
+        if len(queries) < 100:
+            # Add diverse queries using different filters
             broad_queries = [
                 "is:public stars:0..5",
                 "is:public stars:6..10",
                 "is:public stars:11..20",
                 "is:public stars:21..50",
                 "is:public stars:51..100",
+                "is:public stars:101..500",
+                "is:public stars:501..1000",
+                "is:public stars:>1000",
+                "is:public fork:false stars:0..10",
                 "is:public fork:true stars:0..10",
-                "is:public archived:true",
+                "is:public archived:false stars:0..50",
+                "is:public forks:0 stars:0..20",
+                "is:public forks:1..5 stars:0..20",
+                "is:public forks:>5 stars:0..20",
+                f"is:public created:>{datetime.now(UTC).year - 1}-01-01 stars:0..10",
+                f"is:public created:{datetime.now(UTC).year - 2}-01-01..{datetime.now(UTC).year - 2}-12-31",
+                f"is:public updated:>{datetime.now(UTC).year}-01-01 stars:0..5",
             ]
 
             for q in broad_queries:
-                if len(queries) >= 200:
+                if len(queries) >= 100:
                     break
                 queries.append(
                     SearchQuery(
