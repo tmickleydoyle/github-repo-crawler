@@ -67,7 +67,7 @@ class SimpleSearchStrategy:
         if matrix_total == 1:
             # Single job: use created dates starting from 2025-01-01
             start_date = datetime(2025, 1, 1, tzinfo=UTC)
-            queries = []
+            queries: list[SearchQuery] = []
 
             # Query 50 different days with various star ranges
             for day_offset in range(50):
