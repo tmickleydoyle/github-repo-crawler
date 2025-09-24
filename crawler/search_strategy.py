@@ -83,7 +83,7 @@ class SimpleSearchStrategy:
                     ">5000",
                 ]
                 for stars in star_buckets:
-                    if len(queries) >= 100:  # Limit to 100 queries
+                    if len(queries) >= 1000:  # Limit to 1000 queries for max coverage
                         break
                     queries.append(
                         SearchQuery(
@@ -92,7 +92,7 @@ class SimpleSearchStrategy:
                             1000,
                         )
                     )
-                if len(queries) >= 100:
+                if len(queries) >= 1000:
                     break
             return queries
 
@@ -267,10 +267,8 @@ class SimpleSearchStrategy:
             ">5000",
         ]
 
-        # Generate name + stars queries
-        for keyword in job_keywords[
-            :5
-        ]:  # Limit keywords to make room for created date queries
+        # Generate name + stars queries (use more keywords per worker)
+        for keyword in job_keywords[:15]:  # Increase keywords for more queries
             for stars in star_buckets:
                 all_combos.append(
                     {
@@ -286,7 +284,8 @@ class SimpleSearchStrategy:
         start_date = datetime(2025, 1, 1, tzinfo=UTC)
 
         # Each matrix job gets a unique set of days to query
-        days_per_job = 10  # Each job queries 10 different days with 6 star ranges each = 60 queries
+        # With 40 workers, each gets 100 unique days = 4000 total days covered
+        days_per_job = 100  # Each job queries 100 different days with 6 star ranges each = 600 queries
         job_start_day = matrix_index * days_per_job
 
         for day_offset in range(job_start_day, job_start_day + days_per_job):
@@ -294,14 +293,17 @@ class SimpleSearchStrategy:
             date_str = target_date.strftime("%Y-%m-%d")
 
             # Multiple star ranges per day for better coverage
-            for stars in [
+            # Also add fork variants to capture even more repos
+            star_ranges = [
                 "0..10",
                 "11..50",
                 "51..100",
                 "101..500",
                 "501..1000",
                 ">1000",
-            ]:
+            ]
+            for stars in star_ranges:
+                # Regular query
                 all_combos.append(
                     {
                         "query": (
@@ -310,6 +312,16 @@ class SimpleSearchStrategy:
                         "desc": f"Created {date_str}, stars:{stars}",
                     }
                 )
+                # Add fork variant for additional coverage
+                if stars in ["0..10", "11..50"]:  # Only for low star ranges
+                    all_combos.append(
+                        {
+                            "query": (
+                                f"is:public fork:true created:{date_str} stars:{stars} sort:updated"
+                            ),
+                            "desc": f"Fork created {date_str}, stars:{stars}",
+                        }
+                    )
 
         # Strategy 3: Language-based queries without date filters
         # Top languages that have millions of repos
@@ -380,11 +392,12 @@ class SimpleSearchStrategy:
                     }
                 )
 
-        # Convert to SearchQuery objects - take as many as possible
+        # Convert to SearchQuery objects - maximize queries per worker
+        # Each worker can handle many queries to maximize repo discovery
         queries = []
         for combo in all_combos[
-            :100
-        ]:  # Limit to 100 queries per job to avoid rate limits
+            :1000
+        ]:  # Increase to 1000 queries per job for maximum coverage
             queries.append(
                 SearchQuery(
                     query_string=combo["query"],
@@ -394,7 +407,7 @@ class SimpleSearchStrategy:
             )
 
         # Always add diverse broad queries for better coverage
-        if len(queries) < 100:
+        if len(queries) < 1000:
             # Add diverse queries using different filters
             broad_queries = [
                 "is:public stars:0..5",
@@ -417,7 +430,7 @@ class SimpleSearchStrategy:
             ]
 
             for q in broad_queries:
-                if len(queries) >= 100:
+                if len(queries) >= 1000:
                     break
                 queries.append(
                     SearchQuery(
