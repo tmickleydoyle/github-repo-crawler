@@ -17,6 +17,7 @@ from crawler.domain import (
     AuthenticationError,
     CrawlResult,
     RateLimitError,
+    RateLimitExhaustedError,
     Repository,
     RepositoryStats,
     SearchExhaustedError,
@@ -211,6 +212,12 @@ class TestCustomExceptions:
         with pytest.raises(RateLimitError) as exc_info:
             raise RateLimitError("Rate limit exceeded")
         assert "Rate limit exceeded" in str(exc_info.value)
+
+    def test_rate_limit_exhausted_error(self):
+        """Test RateLimitExhaustedError exception."""
+        with pytest.raises(RateLimitExhaustedError) as exc_info:
+            raise RateLimitExhaustedError("API rate limit already exhausted")
+        assert "already exhausted" in str(exc_info.value)
 
     def test_authentication_error(self):
         """Test AuthenticationError exception."""

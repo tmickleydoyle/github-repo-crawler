@@ -2,12 +2,14 @@
 
 import argparse
 import asyncio
+import sys
 from typing import Any
 
 from .client import GitHubClient
 from .config import get_settings
 from .csv_deduplication import CSVDeduplicator
 from .db_repository import DatabaseRepository
+from .domain import RateLimitExhaustedError
 from .logger import get_logger, setup_logging
 
 
@@ -97,6 +99,12 @@ async def run() -> None:
             )
             await run_without_database(args, logger)
 
+    except RateLimitExhaustedError as e:
+        logger.warning(
+            "Crawler stopped gracefully due to API rate limit exhaustion",
+            error=str(e),
+        )
+        sys.exit(0)
     except Exception as e:
         logger.error(
             "Crawl failed",
@@ -129,47 +137,52 @@ async def run_with_database(db_repo: Any, args: Any, logger: Any) -> None:
             rediscovered_count=discovery_stats["rediscovered_repos"],
         )
 
-    async with GitHubClient() as client:
-        if not await client.test_connection():
-            logger.error("GitHub API connection test failed")
-            return
+    try:
+        async with GitHubClient() as client:
+            if not await client.test_connection():
+                logger.error("GitHub API connection test failed")
+                return
 
-        crawl_result = await client.crawl(
-            matrix_total=args.matrix_total,
-            matrix_index=args.matrix_index,
-            target_repos=args.repos,
-            db_repository=db_repo,  # Pass db for persistence
-            csv_deduplicator=csv_deduplicator,  # Pass CSV deduplicator
-        )
+            crawl_result = await client.crawl(
+                matrix_total=args.matrix_total,
+                matrix_index=args.matrix_index,
+                target_repos=args.repos,
+                db_repository=db_repo,
+                csv_deduplicator=csv_deduplicator,
+            )
 
-        await db_repo.store_repositories(crawl_result, args.matrix_index)
+            await db_repo.store_repositories(crawl_result, args.matrix_index)
 
-        # Export to CSV for cross-run deduplication
-        run_id = f"run-{args.matrix_index}-db"
-        csv_deduplicator.export_repositories_to_csv(
-            crawl_result.repositories, run_id, args.matrix_index
-        )
+            run_id = f"run-{args.matrix_index}-db"
+            csv_deduplicator.export_repositories_to_csv(
+                crawl_result.repositories, run_id, args.matrix_index
+            )
 
-        # Show updated discovery stats
-        final_stats = await db_repo.get_discovery_stats()
+            final_stats = await db_repo.get_discovery_stats()
+            logger.info(
+                "📈 Final discovery stats",
+                total_discovered=final_stats["total_discovered"],
+                new_this_run=final_stats["total_discovered"]
+                - discovery_stats["total_discovered"],
+            )
+
         logger.info(
-            "📈 Final discovery stats",
-            total_discovered=final_stats["total_discovered"],
-            new_this_run=final_stats["total_discovered"]
-            - discovery_stats["total_discovered"],
+            "Crawl completed successfully",
+            repositories_count=len(crawl_result.repositories),
         )
 
-    logger.info(
-        "Crawl completed successfully",
-        repositories_count=len(crawl_result.repositories),
-    )
+    except RateLimitExhaustedError as e:
+        logger.warning(
+            "Rate limit exhausted - saving partial results",
+            error=str(e),
+        )
+        raise
 
 
 async def run_without_database(args: Any, logger: Any) -> None:
     """Run crawler without database persistence (fallback mode)."""
     logger.info("Running in fallback mode without database persistence")
 
-    # Create CSV deduplicator for cross-run filtering (matrix-specific file)
     csv_deduplicator = CSVDeduplicator(matrix_index=args.matrix_index)
     csv_stats = csv_deduplicator.get_stats()
     logger.info(
@@ -178,29 +191,36 @@ async def run_without_database(args: Any, logger: Any) -> None:
         known_repos=csv_stats["total_repositories"],
     )
 
-    async with GitHubClient() as client:
-        if not await client.test_connection():
-            logger.error("GitHub API connection test failed")
-            return
+    try:
+        async with GitHubClient() as client:
+            if not await client.test_connection():
+                logger.error("GitHub API connection test failed")
+                return
 
-        crawl_result = await client.crawl(
-            matrix_total=args.matrix_total,
-            matrix_index=args.matrix_index,
-            target_repos=args.repos,
-            db_repository=None,  # No database persistence
-            csv_deduplicator=csv_deduplicator,  # Use CSV for deduplication
-        )
+            crawl_result = await client.crawl(
+                matrix_total=args.matrix_total,
+                matrix_index=args.matrix_index,
+                target_repos=args.repos,
+                db_repository=None,
+                csv_deduplicator=csv_deduplicator,
+            )
 
-        # Export to CSV for future deduplication
-        run_id = f"run-{args.matrix_index}-fallback"
-        csv_deduplicator.export_repositories_to_csv(
-            crawl_result.repositories, run_id, args.matrix_index
-        )
+            run_id = f"run-{args.matrix_index}-fallback"
+            csv_deduplicator.export_repositories_to_csv(
+                crawl_result.repositories, run_id, args.matrix_index
+            )
 
-        logger.info(
-            "Crawl completed successfully (CSV persistence)",
-            repositories_count=len(crawl_result.repositories),
+            logger.info(
+                "Crawl completed successfully (CSV persistence)",
+                repositories_count=len(crawl_result.repositories),
+            )
+
+    except RateLimitExhaustedError as e:
+        logger.warning(
+            "Rate limit exhausted - saving partial results",
+            error=str(e),
         )
+        raise
 
 
 async def run_consolidation(args: Any, logger: Any) -> None:

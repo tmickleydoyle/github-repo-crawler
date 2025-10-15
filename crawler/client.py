@@ -19,6 +19,7 @@ from .domain import (
     AuthenticationError,
     CrawlResult,
     RateLimitError,
+    RateLimitExhaustedError,
     Repository,
     SearchExhaustedError,
     SearchQuery,
@@ -171,7 +172,12 @@ class GitHubClient:
                                 raise AuthenticationError(
                                     f"Authentication failed: {error}"
                                 )
-                            if "RATE_LIMITED" in error_str:
+                            if "RATE_LIMITED" in error_str or "RATE_LIMIT" in error_str:
+                                if "already exceeded" in error_str.lower():
+                                    logger.error("🛑 API rate limit already exhausted")
+                                    raise RateLimitExhaustedError(
+                                        f"API rate limit already exhausted: {error}"
+                                    )
                                 logger.warning("⏱️ GraphQL rate limited, waiting...")
                                 await asyncio.sleep(60)
                                 raise RateLimitError(f"GraphQL rate limited: {error}")
@@ -272,7 +278,12 @@ class GitHubClient:
                 "rateLimit": rate_limit,
             }
 
-        except (RateLimitError, AuthenticationError, SearchExhaustedError):
+        except (
+            RateLimitError,
+            RateLimitExhaustedError,
+            AuthenticationError,
+            SearchExhaustedError,
+        ):
             raise
         except Exception as e:
             logger.error(
@@ -344,6 +355,15 @@ class GitHubClient:
                 if repos_added < 100:  # Query didn't yield full results
                     exhausted_queries.append(search_query.query_string)
 
+            except RateLimitExhaustedError as e:
+                logger.error(
+                    f"🛑 API rate limit exhausted - gracefully stopping crawler: {e}"
+                )
+                logger.info(
+                    f"💾 Saving {len(repositories)} repositories collected "
+                    f"before rate limit"
+                )
+                break
             except SearchExhaustedError:
                 logger.warning(
                     f"⚠️ Search exhausted for query: {search_query.query_string}"
@@ -504,6 +524,11 @@ class GitHubClient:
                     )
                     await asyncio.sleep(sleep_time)
 
+            except RateLimitExhaustedError:
+                logger.error(
+                    "🛑 API rate limit already exhausted - stopping pagination"
+                )
+                raise
             except RateLimitError:
                 logger.warning("⏱️ Rate limit hit, sleeping 60 seconds...")
                 await asyncio.sleep(60)

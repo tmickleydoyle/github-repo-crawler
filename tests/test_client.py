@@ -19,6 +19,7 @@ from crawler.domain import (
     ApiError,
     AuthenticationError,
     RateLimitError,
+    RateLimitExhaustedError,
     SearchQuery,
 )
 
@@ -179,6 +180,35 @@ class TestGitHubClientRequestHandling:
                 mock_post.return_value = mock_context
 
                 with pytest.raises(RateLimitError):
+                    await client._make_graphql_request({"query": "test"})
+
+    @pytest.mark.asyncio
+    async def test_graphql_request_rate_limit_exhausted(self):
+        """Test GraphQL request handles already exhausted rate limit."""
+        client = GitHubClient(token="valid_token_123")
+
+        async with client:
+            with patch.object(client._session, "post") as mock_post:
+                mock_response = AsyncMock()
+                mock_response.status = 200
+                mock_response_data = {
+                    "errors": [
+                        {
+                            "type": "RATE_LIMIT",
+                            "code": "graphql_rate_limit",
+                            "message": "API rate limit already exceeded for site ID installation.",
+                        }
+                    ]
+                }
+                mock_response.json = AsyncMock(return_value=mock_response_data)
+                mock_response.headers = {"X-RateLimit-Remaining": "0"}
+
+                mock_context = AsyncMock()
+                mock_context.__aenter__ = AsyncMock(return_value=mock_response)
+                mock_context.__aexit__ = AsyncMock(return_value=None)
+                mock_post.return_value = mock_context
+
+                with pytest.raises(RateLimitExhaustedError, match="already exhausted"):
                     await client._make_graphql_request({"query": "test"})
 
     @pytest.mark.asyncio

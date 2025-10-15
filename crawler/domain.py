@@ -83,6 +83,12 @@ class RateLimitError(ApiError):
     pass
 
 
+class RateLimitExhaustedError(ApiError):
+    """Exception raised when API rate limit is already exhausted before crawl starts."""
+
+    pass
+
+
 class AuthenticationError(ApiError):
     """Exception raised when GitHub API authentication fails."""
 
