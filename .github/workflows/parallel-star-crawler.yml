@@ -47,6 +47,7 @@ jobs:
         with:
           python-version: "3.11"
           cache: "pip"
+          cache-dependency-path: 'requirements.txt'
 
       - name: Install dependencies
         run: |
@@ -176,6 +177,7 @@ jobs:
         with:
           python-version: "3.11"
           cache: "pip"
+          cache-dependency-path: 'requirements.txt'
 
       - name: Install dependencies
         run: |
@@ -309,86 +311,35 @@ jobs:
           echo "📊 Crawler output summary:"
           grep -E "Collected:|Total stars:|repositories stored|No repositories" crawler_output.log || echo "No summary found"
 
-      - name: Debug database state
-        run: |
-          export PGPASSWORD="${{ env.POSTGRES_PASSWORD }}"
-          echo "🔍 Debugging database state immediately after crawler..."
-
-          # Check connection
-          psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} -c "SELECT version();" || {
-            echo "❌ Cannot connect to database!"
-            exit 1
-          }
-
-          # Check tables and counts
-          echo "📊 Database statistics:"
-          psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} << EOF
-          SELECT 'Tables:', count(*) FROM information_schema.tables WHERE table_schema = 'public';
-          SELECT 'Repos:', count(*) FROM repo;
-          SELECT 'Stats:', count(*) FROM repo_stats;
-          SELECT 'Sample repos:';
-          SELECT r.id, r.name, r.owner, rs.stars
-          FROM repo r
-          LEFT JOIN repo_stats rs ON r.id = rs.repo_id
-          LIMIT 5;
-          EOF
-
       - name: Export job data
         run: |
           mkdir -p database_exports
           export PGPASSWORD="${{ env.POSTGRES_PASSWORD }}"
           TIMESTAMP=$(date +"%Y%m%d%H%M%S")
 
-          # Get counts before export
-          echo "📊 Checking database contents for job ${{ matrix.job_index }}..."
+          # Quick count check
+          REPO_COUNT=$(psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} \
+            -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} \
+            -t -c "SELECT COUNT(*) FROM repo;" 2>/dev/null | tr -d ' ' || echo "0")
 
-          # Check if tables exist first
-          TABLE_CHECK=$(psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_name IN ('repo', 'repo_stats');" | tr -d ' ')
-          echo "  - Tables found: ${TABLE_CHECK}/2"
-
-          if [ "$TABLE_CHECK" -eq "2" ]; then
-            REPO_COUNT=$(psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} -t -c "SELECT COUNT(*) FROM repo;" | tr -d ' ')
-            STATS_COUNT=$(psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} -t -c "SELECT COUNT(*) FROM repo_stats;" | tr -d ' ')
-
-            echo "📊 Job ${{ matrix.job_index }} database state:"
-            echo "  - Repositories in DB: ${REPO_COUNT}"
-            echo "  - Stats records in DB: ${STATS_COUNT}"
-
-            # Show sample data if any exists
-            if [ "$REPO_COUNT" -gt "0" ]; then
-              echo "  - Sample repos:"
-              psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} -c "SELECT r.id, r.name, r.owner, rs.stars FROM repo r LEFT JOIN repo_stats rs ON r.id = rs.repo_id LIMIT 3;"
-            fi
-          else
-            echo "⚠️ WARNING: Database tables not found!"
-            REPO_COUNT=0
-            STATS_COUNT=0
-          fi
+          echo "📊 Job ${{ matrix.job_index }}: ${REPO_COUNT} repositories"
 
           if [ "$REPO_COUNT" -eq 0 ]; then
-            echo "⚠️ WARNING: No repositories found in database!"
-            echo "🔍 Checking if tables exist..."
-            psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} \
-              -c "\dt" || echo "❌ Failed to list tables"
-            
-            echo "🔍 Creating empty CSV files for consistency..."
+            echo "⚠️ No repositories, creating empty CSVs"
             echo "id,name,owner,url,created_at,alphabet_partition,name_with_owner" > "database_exports/repo_${TIMESTAMP}.csv"
             echo "repo_id,fetched_date,stars" > "database_exports/repo_stats_${TIMESTAMP}.csv"
           else
-            # Export repo table to CSV
-            echo "📤 Exporting ${REPO_COUNT} repositories to CSV..."
-            psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} \
-              -c "\copy (SELECT * FROM repo) TO 'database_exports/repo_${TIMESTAMP}.csv' CSV HEADER" || echo "❌ Failed to export repo table"
+            echo "📤 Exporting ${REPO_COUNT} repositories"
+            psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} \
+              -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} \
+              -c "\copy (SELECT * FROM repo) TO 'database_exports/repo_${TIMESTAMP}.csv' CSV HEADER"
             
-            # Export repo_stats table to CSV
-            echo "📤 Exporting ${STATS_COUNT} stat records to CSV..."
-            psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} \
-              -c "\copy (SELECT * FROM repo_stats) TO 'database_exports/repo_stats_${TIMESTAMP}.csv' CSV HEADER" || echo "❌ Failed to export repo_stats table"
+            psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} \
+              -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} \
+              -c "\copy (SELECT * FROM repo_stats) TO 'database_exports/repo_stats_${TIMESTAMP}.csv' CSV HEADER"
           fi
-            
-          echo "✅ Export process completed"
-          echo "📂 Files created:"
-          ls -la database_exports/ || echo "❌ No database_exports directory found"
+          
+          echo "✅ Export completed"
 
       - name: Upload job artifacts
         uses: actions/upload-artifact@v4
@@ -431,6 +382,7 @@ jobs:
         with:
           python-version: "3.11"
           cache: "pip"
+          cache-dependency-path: 'requirements.txt'
 
       - name: Install dependencies
         run: |
@@ -468,126 +420,65 @@ jobs:
                 );
                 TRUNCATE TABLE repo CASCADE;"
 
-          # Track aggregation statistics
-          TOTAL_REPO_ROWS=0
-          TOTAL_STATS_ROWS=0
-          SKIPPED_DUPLICATES=0
+          # Fast parallel aggregation with optimized temp table usage
           CSV_FILES_PROCESSED=0
-          EMPTY_CSV_FILES=0
+          TOTAL_ROWS=0
 
-          echo "🔍 Starting CSV file aggregation..."
-          echo "📂 Scanning for job result directories..."
+          echo "🔍 Starting fast CSV aggregation..."
 
-          # Import CSV files using regular tables to handle duplicates properly
-          for csv_dir in ./job-results/crawler-job-*; do
-            if [ -d "$csv_dir" ]; then
-              echo "Processing CSV files from $csv_dir"
+          # Process all repo CSVs in batch
+          for csv_file in ./job-results/crawler-job-*/repo_*.csv; do
+            if [ -f "$csv_file" ] && [ $(wc -l < "$csv_file") -gt 1 ]; then
+              TEMP_TABLE="temp_repo_$$_$(date +%s%N)"
               
-              # Check if directory has any CSV files
-              if ! ls "$csv_dir"/*.csv 1> /dev/null 2>&1; then
-                echo "⚠️ WARNING: No CSV files found in $csv_dir"
-                continue
-              fi
+              psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} \
+                -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} << EOSQL
+                CREATE TEMP TABLE ${TEMP_TABLE} (LIKE repo);
+                \copy ${TEMP_TABLE} FROM '${csv_file}' CSV HEADER
+                INSERT INTO repo SELECT * FROM ${TEMP_TABLE} ON CONFLICT (id) DO NOTHING;
+                DROP TABLE ${TEMP_TABLE};
+          EOSQL
               
-              for csv_file in "$csv_dir"/*.csv; do
-                # Check if file exists and is readable
-                if [ ! -f "$csv_file" ] || [ ! -r "$csv_file" ]; then
-                  echo "⚠️ WARNING: CSV file $csv_file is not readable or does not exist"
-                  continue
-                fi
-                
-                # Check if file has content beyond header
-                FILE_LINE_COUNT=$(wc -l < "$csv_file")
-                if [ "$FILE_LINE_COUNT" -le 1 ]; then
-                  echo "⚠️ WARNING: CSV file $csv_file appears to be empty (only header or no content): ${FILE_LINE_COUNT} lines"
-                  EMPTY_CSV_FILES=$((EMPTY_CSV_FILES + 1))
-                  continue
-                fi
-                
-                echo "✅ Processing CSV file: $csv_file (${FILE_LINE_COUNT} lines)"
-                CSV_FILES_PROCESSED=$((CSV_FILES_PROCESSED + 1))
-                if [[ "$csv_file" == *"repo_"* ]] && [[ "$csv_file" != *"repo_stats_"* ]]; then
-                  echo "Importing repo data from $csv_file"
-                  # Count rows before import
-                  BEFORE_COUNT=$(psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} -t -c "SELECT COUNT(*) FROM repo;" | tr -d ' ')
-                  
-                  # Generate unique table name using timestamp and random number
-                  TABLE_SUFFIX=$(date +%s)_$$
-                  TEMP_TABLE_NAME="temp_repo_${TABLE_SUFFIX}"
-                  
-                  # Use psql commands for import with proper duplicate handling
-                  echo "Creating temporary table and importing data..."
-                  
-                  # Create temporary table
-                  psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} \
-                    -c "CREATE TABLE ${TEMP_TABLE_NAME} (LIKE repo INCLUDING ALL);"
-                  
-                  # Copy data to temporary table
-                  psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} \
-                    -c "\\copy ${TEMP_TABLE_NAME} FROM '${csv_file}' CSV HEADER"
-                  
-                  # Insert with conflict resolution and cleanup
-                  psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} \
-                    -c "INSERT INTO repo SELECT * FROM ${TEMP_TABLE_NAME} ON CONFLICT (id) DO NOTHING; DROP TABLE ${TEMP_TABLE_NAME};"
-                  
-                  # Count rows after import and calculate imported vs skipped
-                  AFTER_COUNT=$(psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} -t -c "SELECT COUNT(*) FROM repo;" | tr -d ' ')
-                  FILE_ROWS=$(wc -l < "$csv_file")
-                  IMPORTED_ROWS=$((AFTER_COUNT - BEFORE_COUNT))
-                  SKIPPED_IN_FILE=$((FILE_ROWS - 1 - IMPORTED_ROWS))  # -1 for header
-                  TOTAL_REPO_ROWS=$((TOTAL_REPO_ROWS + FILE_ROWS - 1))
-                  SKIPPED_DUPLICATES=$((SKIPPED_DUPLICATES + SKIPPED_IN_FILE))
-                  
-                  echo "  📊 File rows: $((FILE_ROWS - 1)), Imported: ${IMPORTED_ROWS}, Skipped duplicates: ${SKIPPED_IN_FILE}"
-                  
-                elif [[ "$csv_file" == *"repo_stats_"* ]]; then
-                  echo "Importing repo_stats data from $csv_file" 
-                  
-                  # Generate unique table name using timestamp and random number
-                  TABLE_SUFFIX=$(date +%s)_$$
-                  TEMP_TABLE_NAME="temp_repo_stats_${TABLE_SUFFIX}"
-                  
-                  # Use psql commands for import with proper duplicate handling
-                  echo "Creating temporary table and importing stats data..."
-                  
-                  # Create temporary table
-                  psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} \
-                    -c "CREATE TABLE ${TEMP_TABLE_NAME} (LIKE repo_stats INCLUDING ALL);"
-                  
-                  # Copy data to temporary table
-                  psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} \
-                    -c "\\copy ${TEMP_TABLE_NAME} FROM '${csv_file}' CSV HEADER"
-                  
-                  # Insert with conflict resolution and cleanup
-                  psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} \
-                    -c "INSERT INTO repo_stats SELECT * FROM ${TEMP_TABLE_NAME} ON CONFLICT (repo_id, fetched_date) DO UPDATE SET stars = EXCLUDED.stars; DROP TABLE ${TEMP_TABLE_NAME};"
-                    
-                  FILE_ROWS=$(wc -l < "$csv_file")
-                  TOTAL_STATS_ROWS=$((TOTAL_STATS_ROWS + FILE_ROWS - 1))
-                fi
-              done
+              CSV_FILES_PROCESSED=$((CSV_FILES_PROCESSED + 1))
+              TOTAL_ROWS=$((TOTAL_ROWS + $(wc -l < "$csv_file") - 1))
+              echo "✅ Processed $(basename $csv_file)"
+            fi
+          done
+
+          # Process all stats CSVs in batch
+          for csv_file in ./job-results/crawler-job-*/repo_stats_*.csv; do
+            if [ -f "$csv_file" ] && [ $(wc -l < "$csv_file") -gt 1 ]; then
+              TEMP_TABLE="temp_stats_$$_$(date +%s%N)"
+              
+              psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} \
+                -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} << EOSQL
+                CREATE TEMP TABLE ${TEMP_TABLE} (LIKE repo_stats);
+                \copy ${TEMP_TABLE} FROM '${csv_file}' CSV HEADER
+                INSERT INTO repo_stats SELECT * FROM ${TEMP_TABLE} 
+                  ON CONFLICT (repo_id, fetched_date) DO UPDATE SET stars = EXCLUDED.stars;
+                DROP TABLE ${TEMP_TABLE};
+          EOSQL
             fi
           done
 
           # Final counts
-          FINAL_REPO_COUNT=$(psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} -t -c "SELECT COUNT(*) FROM repo;" | tr -d ' ')
-          FINAL_STATS_COUNT=$(psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} -t -c "SELECT COUNT(*) FROM repo_stats;" | tr -d ' ')
+          FINAL_REPO_COUNT=$(psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} \
+            -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} \
+            -t -c "SELECT COUNT(*) FROM repo;" | tr -d ' ')
+          
+          FINAL_STATS_COUNT=$(psql -h ${{ env.POSTGRES_HOST }} -p ${{ env.POSTGRES_PORT }} \
+            -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} \
+            -t -c "SELECT COUNT(*) FROM repo_stats;" | tr -d ' ')
 
-          echo "✅ Data aggregation completed"
-          echo "📊 Aggregation Summary:"
-          echo "  - CSV files processed: ${CSV_FILES_PROCESSED}"
-          echo "  - Empty CSV files skipped: ${EMPTY_CSV_FILES}"
-          echo "  - Total rows processed: ${TOTAL_REPO_ROWS} repos, ${TOTAL_STATS_ROWS} stats"
-          echo "  - Final unique records: ${FINAL_REPO_COUNT} repos, ${FINAL_STATS_COUNT} stats"
-          echo "  - Duplicate repos skipped: ${SKIPPED_DUPLICATES}"
-          # Safe division to avoid division by zero error
-          if [ "${TOTAL_REPO_ROWS}" -gt 0 ]; then
-            echo "  - Deduplication rate: $(( (SKIPPED_DUPLICATES * 100) / TOTAL_REPO_ROWS ))% overlap between jobs"
-          else
-            echo "  - Deduplication rate: N/A (no data processed)"
-            if [ "${EMPTY_CSV_FILES}" -gt 0 ]; then
-              echo "  ⚠️ NOTE: All CSV files were empty. This suggests crawler jobs may have failed or found no repositories."
-            fi
+          echo "✅ Aggregation completed"
+          echo "📊 Summary:"
+          echo "  - CSV files: ${CSV_FILES_PROCESSED}"
+          echo "  - Total rows: ${TOTAL_ROWS}"
+          echo "  - Unique repos: ${FINAL_REPO_COUNT}"
+          echo "  - Stats records: ${FINAL_STATS_COUNT}"
+          if [ "${TOTAL_ROWS}" -gt 0 ] && [ "${FINAL_REPO_COUNT}" -gt 0 ]; then
+            DEDUP_RATE=$(( ((TOTAL_ROWS - FINAL_REPO_COUNT) * 100) / TOTAL_ROWS ))
+            echo "  - Deduplication: ${DEDUP_RATE}%"
           fi
 
       - name: Create final export

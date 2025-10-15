@@ -267,9 +267,13 @@ class SimpleSearchStrategy:
             ">5000",
         ]
 
-        # Generate name + stars queries (use more keywords per worker)
-        for keyword in job_keywords[:15]:  # Increase keywords for more queries
-            for stars in star_buckets:
+        # Generate name + stars queries (reduced to avoid overlap with date-based strategy)
+        for keyword in job_keywords[:5]:  # Reduced from 15 to 5 to minimize overlap
+            for stars in [
+                "0..10",
+                "11..100",
+                ">100",
+            ]:  # Broader star ranges, less overlap
                 all_combos.append(
                     {
                         "query": (
@@ -392,12 +396,9 @@ class SimpleSearchStrategy:
                     }
                 )
 
-        # Convert to SearchQuery objects - maximize queries per worker
-        # Each worker can handle many queries to maximize repo discovery
+        # Convert to SearchQuery objects - optimized query count
         queries = []
-        for combo in all_combos[
-            :1000
-        ]:  # Increase to 1000 queries per job for maximum coverage
+        for combo in all_combos[:800]:  # Reduced to 800 for better efficiency
             queries.append(
                 SearchQuery(
                     query_string=combo["query"],
@@ -405,40 +406,6 @@ class SimpleSearchStrategy:
                     expected_results=1000,
                 )
             )
-
-        # Always add diverse broad queries for better coverage
-        if len(queries) < 1000:
-            # Add diverse queries using different filters
-            broad_queries = [
-                "is:public stars:0..5",
-                "is:public stars:6..10",
-                "is:public stars:11..20",
-                "is:public stars:21..50",
-                "is:public stars:51..100",
-                "is:public stars:101..500",
-                "is:public stars:501..1000",
-                "is:public stars:>1000",
-                "is:public fork:false stars:0..10",
-                "is:public fork:true stars:0..10",
-                "is:public archived:false stars:0..50",
-                "is:public forks:0 stars:0..20",
-                "is:public forks:1..5 stars:0..20",
-                "is:public forks:>5 stars:0..20",
-                f"is:public created:>{datetime.now(UTC).year - 1}-01-01 stars:0..10",
-                f"is:public created:{datetime.now(UTC).year - 2}-01-01..{datetime.now(UTC).year - 2}-12-31",
-                f"is:public updated:>{datetime.now(UTC).year}-01-01 stars:0..5",
-            ]
-
-            for q in broad_queries:
-                if len(queries) >= 1000:
-                    break
-                queries.append(
-                    SearchQuery(
-                        query_string=f"{q} sort:updated",
-                        description=f"Job {matrix_index}: Broad - {q}",
-                        expected_results=1000,
-                    )
-                )
 
         return queries
 

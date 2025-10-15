@@ -73,14 +73,14 @@ class GitHubClient:
             limit=100,
             limit_per_host=20,
             enable_cleanup_closed=True,
-            force_close=True,  # Force close connections to avoid reuse issues
-            # Note: keepalive_timeout cannot be used with force_close=True
+            force_close=False,
+            keepalive_timeout=30,
         )
         self._session = aiohttp.ClientSession(
             connector=self._connector,
             headers=self.headers,
             timeout=aiohttp.ClientTimeout(total=30),
-            trust_env=True,  # Trust environment proxy settings if any
+            trust_env=True,
         )
         return self
 
@@ -406,7 +406,7 @@ class GitHubClient:
         """Process a single search query with pagination and persistence."""
         after_cursor = None
         pages_processed = 0
-        max_pages = 10
+        max_pages = 50
         total_for_query = 0
 
         while len(repositories) < target_repos and pages_processed < max_pages:
@@ -494,9 +494,15 @@ class GitHubClient:
                 after_cursor = page_info["endCursor"]
                 pages_processed += 1
 
-                if result["rateLimit"]["remaining"] < 100:
-                    logger.info("⏱️ Rate limit low, sleeping...")
-                    await asyncio.sleep(1)
+                remaining = result["rateLimit"]["remaining"]
+                if remaining < 100:
+                    sleep_time = (
+                        0.5 if remaining > 50 else 1.0 if remaining > 20 else 2.0
+                    )
+                    logger.info(
+                        f"⏱️ Rate limit at {remaining}, sleeping {sleep_time}s..."
+                    )
+                    await asyncio.sleep(sleep_time)
 
             except RateLimitError:
                 logger.warning("⏱️ Rate limit hit, sleeping 60 seconds...")
