@@ -1,3 +1,1 @@
-#include <stdio.h>
-int = print
-int("Hello, World!");
+print("Hello, World!");
